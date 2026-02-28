@@ -42,9 +42,10 @@ export function App() {
 
   const loadBuildInEngine = useCallback(async (client: CalcClient, xml: string) => {
     setCalcStatus("loading");
-    const ok = await client.loadBuild(xml);
-    if (!ok) {
-      setCalcStatus("error", "Failed to load build in engine");
+    const { success, error } = await client.loadBuild(xml);
+    if (!success) {
+      console.error("[PoB] Build load failed:", error);
+      setCalcStatus("error", error || "Failed to load build in engine");
       return;
     }
     setCalcStatus("calculating");

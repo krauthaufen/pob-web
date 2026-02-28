@@ -234,28 +234,46 @@ double bridge_get_number(const char *name) {
 /*
  * Call a Lua function by name with a single JSON string argument.
  * Returns the result as a string (the Lua function should return a string/JSON).
+ * The returned pointer is valid until the next call to bridge_call_json.
  */
+static char *call_json_buf = NULL;
+static size_t call_json_buf_size = 0;
+
 EMSCRIPTEN_KEEPALIVE
 const char *bridge_call_json(const char *func_name, const char *json_arg) {
     if (!L) return "{\"error\":\"Lua state not initialized\"}";
 
+    int top = lua_gettop(L);
+
     lua_getglobal(L, func_name);
     if (!lua_isfunction(L, -1)) {
-        lua_pop(L, 1);
+        lua_settop(L, top);
         return "{\"error\":\"Function not found\"}";
     }
 
     lua_pushstring(L, json_arg);
     int status = lua_pcall(L, 1, 1, 0);
+
+    const char *result;
     if (status != 0) {
         const char *err = lua_tostring(L, -1);
-        /* We need to keep the error string alive, so don't pop yet.
-           The caller should be aware this string lives on the Lua stack. */
-        return err ? err : "{\"error\":\"Unknown Lua error\"}";
+        result = err ? err : "{\"error\":\"Unknown Lua error\"}";
+    } else {
+        result = lua_tostring(L, -1);
+        if (!result) result = "null";
     }
 
-    const char *result = lua_tostring(L, -1);
-    return result ? result : "null";
+    /* Copy result to our buffer so we can pop the stack */
+    size_t len = strlen(result) + 1;
+    if (len > call_json_buf_size) {
+        free(call_json_buf);
+        call_json_buf_size = len > 4096 ? len : 4096;
+        call_json_buf = malloc(call_json_buf_size);
+    }
+    memcpy(call_json_buf, result, len);
+
+    lua_settop(L, top); /* restore stack */
+    return call_json_buf;
 }
 
 /* Get the top of the Lua stack (for debugging) */

@@ -45,10 +45,10 @@ export class CalcClient {
     return false;
   }
 
-  async loadBuild(xml: string): Promise<boolean> {
+  async loadBuild(xml: string): Promise<{ success: boolean; error?: string }> {
     const res = await this.send({ type: "loadBuild", xml });
-    if (res.type === "loadBuild") return res.success;
-    return false;
+    if (res.type === "loadBuild") return { success: res.success, error: res.error };
+    return { success: false, error: "unexpected response" };
   }
 
   async getStats(): Promise<Record<string, number>> {

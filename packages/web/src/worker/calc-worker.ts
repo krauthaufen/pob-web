@@ -246,15 +246,26 @@ function pobWebLoadBuild(jsonArg)
   if not args or not args.xml then
     return dkjson.encode({ error = "missing xml field" })
   end
-  local ok, err = pcall(function()
+  -- SetMode must succeed
+  local setOk, setErr = pcall(function()
     mainObject.main:SetMode("BUILD", false, args.name or "Imported Build", args.xml)
-    runCallback("OnFrame")
   end)
-  if ok then
-    return dkjson.encode({ success = true })
-  else
-    return dkjson.encode({ error = tostring(err) })
+  if not setOk then
+    return dkjson.encode({ error = "SetMode: " .. tostring(setErr) })
   end
+  -- OnFrame triggers calcs but may error (e.g. CalcDefence division by zero).
+  -- This is non-fatal; partial stats may still be available.
+  local frameOk, frameErr = pcall(runCallback, "OnFrame")
+  if not frameOk then
+    print("OnFrame after build load (non-fatal): " .. tostring(frameErr))
+  end
+  if mainObject.promptMsg then
+    print("PoB warning: " .. tostring(mainObject.promptMsg))
+    mainObject.promptMsg = nil
+  end
+  -- Update build reference
+  build = mainObject.main.modes["BUILD"]
+  return dkjson.encode({ success = true })
 end
 
 function pobWebGetStats(jsonArg)
