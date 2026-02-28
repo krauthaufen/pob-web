@@ -11,6 +11,7 @@
 #include <emscripten.h>
 #include <string.h>
 #include <stdlib.h>
+#include <zlib.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -39,6 +40,96 @@ static int lua_print_override(lua_State *L) {
     return 0;
 }
 
+/* Lua-callable Deflate: compress a string with raw deflate (no header) */
+static int lua_deflate(lua_State *L) {
+    size_t srcLen;
+    const char *src = luaL_checklstring(L, 1, &srcLen);
+
+    uLongf destLen = compressBound(srcLen);
+    unsigned char *dest = malloc(destLen);
+    if (!dest) return luaL_error(L, "Deflate: malloc failed");
+
+    z_stream strm;
+    memset(&strm, 0, sizeof(strm));
+    /* windowBits = -15 for raw deflate (no zlib/gzip header) */
+    if (deflateInit2(&strm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
+        free(dest);
+        return luaL_error(L, "Deflate: init failed");
+    }
+
+    strm.next_in = (unsigned char *)src;
+    strm.avail_in = srcLen;
+    strm.next_out = dest;
+    strm.avail_out = destLen;
+
+    int ret = deflate(&strm, Z_FINISH);
+    destLen = strm.total_out;
+    deflateEnd(&strm);
+
+    if (ret != Z_STREAM_END) {
+        free(dest);
+        return luaL_error(L, "Deflate: compression failed");
+    }
+
+    lua_pushlstring(L, (const char *)dest, destLen);
+    free(dest);
+    return 1;
+}
+
+/* Lua-callable Inflate: decompress a raw-deflated string */
+static int lua_inflate(lua_State *L) {
+    size_t srcLen;
+    const char *src = luaL_checklstring(L, 1, &srcLen);
+
+    /* Start with 4x source size, grow if needed */
+    uLongf destLen = srcLen * 4;
+    if (destLen < 4096) destLen = 4096;
+    unsigned char *dest = NULL;
+
+    z_stream strm;
+    memset(&strm, 0, sizeof(strm));
+    /* windowBits = -15 for raw inflate */
+    if (inflateInit2(&strm, -15) != Z_OK) {
+        return luaL_error(L, "Inflate: init failed");
+    }
+
+    strm.next_in = (unsigned char *)src;
+    strm.avail_in = srcLen;
+
+    int ret;
+    do {
+        destLen *= 2;
+        unsigned char *newDest = realloc(dest, destLen);
+        if (!newDest) {
+            free(dest);
+            inflateEnd(&strm);
+            return luaL_error(L, "Inflate: realloc failed");
+        }
+        dest = newDest;
+        strm.next_out = dest + strm.total_out;
+        strm.avail_out = destLen - strm.total_out;
+        ret = inflate(&strm, Z_NO_FLUSH);
+    } while (ret == Z_OK || ret == Z_BUF_ERROR);
+
+    if (ret != Z_STREAM_END) {
+        free(dest);
+        inflateEnd(&strm);
+        return luaL_error(L, "Inflate: decompression failed (%d)", ret);
+    }
+
+    lua_pushlstring(L, (const char *)dest, strm.total_out);
+    free(dest);
+    inflateEnd(&strm);
+    return 1;
+}
+
+/* Lua-callable GetTime: return ms since epoch via emscripten */
+static int lua_gettime(lua_State *L) {
+    double ms = emscripten_get_now();
+    lua_pushnumber(L, ms);
+    return 1;
+}
+
 EMSCRIPTEN_KEEPALIVE
 int bridge_init(void) {
     if (L) return 0; /* already initialized */
@@ -51,6 +142,16 @@ int bridge_init(void) {
     /* Override print */
     lua_pushcfunction(L, lua_print_override);
     lua_setglobal(L, "print");
+
+    /* Register Deflate/Inflate as Lua globals */
+    lua_pushcfunction(L, lua_deflate);
+    lua_setglobal(L, "Deflate");
+    lua_pushcfunction(L, lua_inflate);
+    lua_setglobal(L, "Inflate");
+
+    /* Register GetTime that returns real ms */
+    lua_pushcfunction(L, lua_gettime);
+    lua_setglobal(L, "GetTime");
 
     return 0;
 }

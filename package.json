@@ -9,7 +9,8 @@
   "scripts": {
     "dev": "npm -w packages/web run dev",
     "build": "npm -w packages/web run build",
-    "build:wasm": "npm -w packages/lua-wasm run build"
+    "build:wasm": "npm -w packages/lua-wasm run build",
+    "bundle:lua": "node packages/pob-data/bundle-lua.mjs"
   },
   "dependencies": {
     "@gpu-tex-enc/bc": "^1.0.11",

@@ -15,4 +15,8 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ["@pob-web/lua-wasm"],
   },
+  server: {
+    host: "0.0.0.0",
+  },
+  assetsInclude: ["**/*.wasm"],
 });

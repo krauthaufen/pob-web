@@ -12,7 +12,8 @@ packages/lua-wasm/build/
 packages/lua-wasm/dist/
 packages/pob-data/dist/
 
-# Generated assets (rebuild via convert-sprites.mjs)
+# Generated assets (rebuild via convert-sprites.mjs / bundle-lua.mjs)
 packages/web/public/data/sprites/
 packages/web/public/data/tree.json
+packages/web/public/data/pob-lua.json
 packages/web/wasm/
