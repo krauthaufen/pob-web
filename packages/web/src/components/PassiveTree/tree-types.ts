@@ -59,6 +59,7 @@ export interface TreeNode {
   isAscendancyStart?: boolean;
   ascendancyName?: string;
   classStartIndex?: number;
+  classesStart?: string[];
   group?: number;
   orbit?: number;
   orbitIndex?: number;

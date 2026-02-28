@@ -1,23 +1,52 @@
 import { useState, useCallback } from "react";
 import { useBuildStore } from "@/store/build-store";
-import { decodeBuildCode, parseBuildXml } from "@/worker/build-decoder";
+import {
+  decodeBuildCode,
+  parseBuildXml,
+  parsePoeNinjaUrl,
+  fetchPoeNinjaBuild,
+} from "@/worker/build-decoder";
+
+export const EXAMPLE_CODE = "https://poe.ninja/poe2/profile/krauthaufen-0194/character/wallensteinplatz";
 
 export function ImportPanel() {
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(EXAMPLE_CODE);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const { setBuild, setImportCode, build } = useBuildStore();
 
-  const handleImport = useCallback(() => {
+  const importCode = useCallback((code: string) => {
+    const xml = decodeBuildCode(code);
+    const parsed = parseBuildXml(xml);
+    setBuild(parsed);
+    setImportCode(code);
+  }, [setBuild, setImportCode]);
+
+  const handleImport = useCallback(async () => {
     setError(null);
+
+    // Check if it's a poe.ninja URL
+    const ninjaUrl = parsePoeNinjaUrl(input);
+    if (ninjaUrl) {
+      setLoading(true);
+      try {
+        const code = await fetchPoeNinjaBuild(ninjaUrl.account, ninjaUrl.character);
+        importCode(code);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to fetch from poe.ninja");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Otherwise treat as raw PoB code
     try {
-      const xml = decodeBuildCode(input);
-      const build = parseBuildXml(xml);
-      setBuild(build);
-      setImportCode(input);
+      importCode(input);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to decode build");
     }
-  }, [input, setBuild, setImportCode]);
+  }, [input, importCode]);
 
   return (
     <div className="flex flex-col gap-3 p-4">
@@ -27,7 +56,7 @@ export function ImportPanel() {
       <textarea
         className="w-full rounded border border-poe-border bg-poe-bg p-3 font-mono text-xs text-poe-text placeholder-gray-600 focus:border-poe-accent focus:outline-none"
         rows={4}
-        placeholder="Paste PoB build code here..."
+        placeholder="Paste PoB code or poe.ninja character URL..."
         value={input}
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={(e) => {
@@ -38,9 +67,9 @@ export function ImportPanel() {
         <button
           className="rounded bg-poe-accent px-4 py-2 text-sm font-medium text-white transition hover:brightness-110 disabled:opacity-50"
           onClick={handleImport}
-          disabled={!input.trim()}
+          disabled={!input.trim() || loading}
         >
-          Import
+          {loading ? "Fetching..." : "Import"}
         </button>
         {build && (
           <span className="text-xs text-gray-400">

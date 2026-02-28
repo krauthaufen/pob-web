@@ -62,6 +62,8 @@ export async function loadTreeAtlases(): Promise<Record<string, SpriteAtlas>> {
     "skills-disabled_128_128_BC1",
     "skills_64_64_BC1",
     "skills-disabled_64_64_BC1",
+    // Jewel sockets
+    "jewel-sockets_152_156_BC7",
     // Mastery overlays
     "mastery-active-effect_776_768_BC7",
   ];

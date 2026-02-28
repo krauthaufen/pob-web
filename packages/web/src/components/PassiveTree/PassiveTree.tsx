@@ -3,7 +3,10 @@ import { Application, Container, Graphics, Sprite } from "pixi.js";
 import { useBuildStore } from "@/store/build-store";
 import type { ProcessedNode } from "./tree-types";
 import type { TreeData } from "./tree-types";
+import type { NodeImpact } from "@/worker/calc-api";
+import type { CalcClient } from "@/worker/calc-client";
 import { processTree } from "./tree-processor";
+import { NodeDetailPanel } from "./NodeDetailPanel";
 import {
   loadTreeAtlases,
   getFrameTexture,
@@ -33,48 +36,59 @@ const HEATMAP_COLORS = [
 ];
 
 // Node sizes in tree coordinate units (from PassiveTree.lua GetNodeTargetSize × 2)
-// DrawAsset draws at width*2, height*2 so targetSize values are half-sizes
 const FRAME_SIZE: Record<string, number> = {
-  normal: 108,     // 54 * 2
-  notable: 160,    // 80 * 2
-  keystone: 240,   // 120 * 2
-  jewel: 152,      // 76 * 2
-  mastery: 108,    // same as normal
-  classStart: 2,   // 1 * 2 (no visible overlay)
-  ascendancyStart: 100, // 50 * 2
+  normal: 108,
+  notable: 160,
+  keystone: 240,
+  jewel: 152,
+  mastery: 108,
+  classStart: 2,
+  ascendancyStart: 100,
 };
 
 const ICON_SIZE: Record<string, number> = {
-  normal: 74,      // 37 * 2
-  notable: 108,    // 54 * 2
-  keystone: 164,   // 82 * 2
-  jewel: 152,      // 76 * 2
-  mastery: 74,     // same as normal
-  classStart: 74,  // 37 * 2
-  ascendancyStart: 32, // 16 * 2
+  normal: 74,
+  notable: 108,
+  keystone: 164,
+  jewel: 152,
+  mastery: 74,
+  classStart: 74,
+  ascendancyStart: 32,
 };
 
 interface Props {
   treeData: TreeData | null;
   heatmapData?: Record<number, number>;
   searchQuery?: string;
+  calcClient?: CalcClient | null;
 }
 
-export function PassiveTree({ treeData, heatmapData, searchQuery }: Props) {
+export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: Props) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
   const worldRef = useRef<Container | null>(null);
   const nodesRef = useRef<Map<string, ProcessedNode>>(new Map());
   const nodeGfxRef = useRef<Map<string, Container>>(new Map());
   const atlasesRef = useRef<Record<string, SpriteAtlas> | null>(null);
+  const connGfxRef = useRef<Graphics | null>(null);
+  const connectionsDataRef = useRef<Array<{ from: string; to: string }>>([]);
   const [appReady, setAppReady] = useState(false);
   const [tooltip, setTooltip] = useState<{
     x: number; y: number; node: ProcessedNode;
   } | null>(null);
 
+  // Node detail panel state
+  const [selectedNode, setSelectedNode] = useState<ProcessedNode | null>(null);
+  const selectedNodeRef = useRef<ProcessedNode | null>(null);
+  const [nodeImpact, setNodeImpact] = useState<NodeImpact | null>(null);
+  const [impactLoading, setImpactLoading] = useState(false);
+  const nodeTappedRef = useRef(false);
+
   const allocatedNodes = useBuildStore((s) => s.allocatedNodes);
-  const toggleNode = useBuildStore((s) => s.toggleNode);
+  const setAllocatedNodes = useBuildStore((s) => s.setAllocatedNodes);
   const setHoveredNode = useBuildStore((s) => s.setHoveredNode);
+  const setCalcDisplay = useBuildStore((s) => s.setCalcDisplay);
+  const jewelData = useBuildStore((s) => s.jewelData);
 
   // Initialize PixiJS
   useEffect(() => {
@@ -121,7 +135,6 @@ export function PassiveTree({ treeData, heatmapData, searchQuery }: Props) {
     let lastX = 0, lastY = 0;
     let dragMoved = false;
 
-    // --- Mouse wheel zoom ---
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const world = worldRef.current;
@@ -140,9 +153,8 @@ export function PassiveTree({ treeData, heatmapData, searchQuery }: Props) {
       world.scale.set(newScale);
     };
 
-    // --- Mouse drag pan ---
     const onPointerDown = (e: PointerEvent) => {
-      if (e.pointerType === "touch") return; // handled by touch events
+      if (e.pointerType === "touch") return;
       if (e.button === 0 || e.button === 1) {
         isDragging = true;
         dragMoved = false;
@@ -172,7 +184,6 @@ export function PassiveTree({ treeData, heatmapData, searchQuery }: Props) {
       el.style.cursor = "";
     };
 
-    // --- Touch: 1-finger pan, 2-finger pinch-zoom ---
     let lastTouches: Touch[] = [];
     let touchDragMoved = false;
 
@@ -184,8 +195,8 @@ export function PassiveTree({ treeData, heatmapData, searchQuery }: Props) {
 
     function getTouchDist(touches: Touch[]): number {
       if (touches.length < 2) return 0;
-      const dx = touches[0].clientX - touches[1].clientX;
-      const dy = touches[0].clientY - touches[1].clientY;
+      const dx = touches[0]!.clientX - touches[1]!.clientX;
+      const dy = touches[0]!.clientY - touches[1]!.clientY;
       return Math.sqrt(dx * dx + dy * dy);
     }
 
@@ -203,25 +214,21 @@ export function PassiveTree({ treeData, heatmapData, searchQuery }: Props) {
       const rect = el.getBoundingClientRect();
 
       if (touches.length === 1 && lastTouches.length === 1) {
-        // One-finger pan
-        const dx = touches[0].clientX - lastTouches[0].clientX;
-        const dy = touches[0].clientY - lastTouches[0].clientY;
+        const dx = touches[0]!.clientX - lastTouches[0]!.clientX;
+        const dy = touches[0]!.clientY - lastTouches[0]!.clientY;
         if (Math.abs(dx) > 2 || Math.abs(dy) > 2) touchDragMoved = true;
         world.x += dx;
         world.y += dy;
       } else if (touches.length >= 2 && lastTouches.length >= 2) {
-        // Pinch zoom + pan
         touchDragMoved = true;
         const oldCenter = getTouchCenter(lastTouches);
         const newCenter = getTouchCenter(touches);
         const oldDist = getTouchDist(lastTouches);
         const newDist = getTouchDist(touches);
 
-        // Pan
         world.x += newCenter.x - oldCenter.x;
         world.y += newCenter.y - oldCenter.y;
 
-        // Zoom toward pinch center
         if (oldDist > 0 && newDist > 0) {
           const zoomFactor = newDist / oldDist;
           const mx = newCenter.x - rect.left;
@@ -273,8 +280,6 @@ export function PassiveTree({ treeData, heatmapData, searchQuery }: Props) {
     const frameSize = FRAME_SIZE[node.type] ?? 26;
     const iconSize = ICON_SIZE[node.type] ?? 16;
 
-    // PoB render order: icon (base) first, then frame (overlay) on top
-
     // 1. Icon (base artwork)
     if (node.icon) {
       const iconTex = atlases ? getIconTexture(atlases, node.icon, isAllocated) : null;
@@ -287,7 +292,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery }: Props) {
       }
     }
 
-    // 2. Frame overlay (on top of icon)
+    // 2. Frame overlay
     const frameTex = atlases ? getFrameTexture(atlases, node.type, isAllocated) : null;
 
     if (frameTex) {
@@ -297,7 +302,6 @@ export function PassiveTree({ treeData, heatmapData, searchQuery }: Props) {
       frameSprite.height = frameSize * (frameTex.height / frameTex.width);
       container.addChild(frameSprite);
     } else if (node.type !== "mastery" && !frameTex) {
-      // Fallback: draw a shape when no texture available
       const gfx = new Graphics();
       const r = frameSize / 2;
       let color: number;
@@ -311,6 +315,12 @@ export function PassiveTree({ treeData, heatmapData, searchQuery }: Props) {
           color = isAllocated ? COLORS.nodeNotableAllocated : COLORS.nodeNotable;
           gfx.circle(0, 0, r);
           gfx.fill({ color, alpha: isAllocated ? 1 : 0.7 });
+          break;
+        case "jewel":
+          color = COLORS.nodeJewel;
+          gfx.moveTo(0, -r); gfx.lineTo(r, 0); gfx.lineTo(0, r); gfx.lineTo(-r, 0); gfx.closePath();
+          gfx.stroke({ width: 3, color, alpha: 0.9 });
+          gfx.fill({ color, alpha: 0.15 });
           break;
         case "classStart":
           gfx.circle(0, 0, r);
@@ -337,19 +347,20 @@ export function PassiveTree({ treeData, heatmapData, searchQuery }: Props) {
     let cancelled = false;
 
     async function render() {
-      // Load atlases if not already loaded
       if (!atlasesRef.current) {
         atlasesRef.current = await loadTreeAtlases();
       }
       if (cancelled) return;
 
       const atlases = atlasesRef.current;
+      const currentAllocated = useBuildStore.getState().allocatedNodes;
 
       world.removeChildren();
       nodeGfxRef.current.clear();
 
       const { nodes, connections, bounds } = processTree(treeData!);
       nodesRef.current = nodes;
+      connectionsDataRef.current = connections;
 
       const treeWidth = bounds.maxX - bounds.minX;
       const treeHeight = bounds.maxY - bounds.minY;
@@ -363,13 +374,14 @@ export function PassiveTree({ treeData, heatmapData, searchQuery }: Props) {
 
       // Connection layer
       const connGfx = new Graphics();
+      connGfxRef.current = connGfx;
       for (const conn of connections) {
         const from = nodes.get(conn.from);
         const to = nodes.get(conn.to);
         if (!from || !to) continue;
         if (from.ascendancy !== to.ascendancy) continue;
 
-        const isConnAllocated = allocatedNodes.has(from.hash) && allocatedNodes.has(to.hash);
+        const isConnAllocated = currentAllocated.has(from.hash) && currentAllocated.has(to.hash);
 
         connGfx.moveTo(from.x, from.y);
         connGfx.lineTo(to.x, to.y);
@@ -387,13 +399,14 @@ export function PassiveTree({ treeData, heatmapData, searchQuery }: Props) {
       for (const [id, node] of nodes) {
         if (node.ascendancy) continue;
 
-        const isAllocated = allocatedNodes.has(node.hash);
+        const isAllocated = currentAllocated.has(node.hash);
         const nodeContainer = createNodeVisual(node, isAllocated, atlases);
 
         nodeContainer.x = node.x;
         nodeContainer.y = node.y;
         nodeContainer.eventMode = "static";
         nodeContainer.cursor = "pointer";
+        (nodeContainer as any).__allocated = isAllocated;
 
         const hitR = (FRAME_SIZE[node.type] ?? 26) / 2;
         nodeContainer.hitArea = {
@@ -402,8 +415,10 @@ export function PassiveTree({ treeData, heatmapData, searchQuery }: Props) {
 
         nodeContainer.on("pointerenter", () => {
           setHoveredNode(node.hash);
-          const globalPos = nodeContainer.getGlobalPosition();
-          setTooltip({ x: globalPos.x, y: globalPos.y, node });
+          if (!selectedNodeRef.current) {
+            const globalPos = nodeContainer.getGlobalPosition();
+            setTooltip({ x: globalPos.x, y: globalPos.y, node });
+          }
         });
         nodeContainer.on("pointerleave", () => {
           setHoveredNode(null);
@@ -412,9 +427,11 @@ export function PassiveTree({ treeData, heatmapData, searchQuery }: Props) {
         nodeContainer.on("pointertap", () => {
           const el = canvasRef.current;
           if (el && (el as any).__dragMoved?.()) return;
-          if (node.type !== "classStart" && node.type !== "mastery") {
-            toggleNode(node.hash);
-          }
+          nodeTappedRef.current = true;
+          setTooltip(null);
+          selectedNodeRef.current = node;
+          setSelectedNode(node);
+          setNodeImpact(null);
         });
 
         nodeLayer.addChild(nodeContainer);
@@ -433,7 +450,92 @@ export function PassiveTree({ treeData, heatmapData, searchQuery }: Props) {
     render();
 
     return () => { cancelled = true; };
-  }, [appReady, treeData, allocatedNodes, toggleNode, setHoveredNode, createNodeVisual]);
+  }, [appReady, treeData, setHoveredNode, createNodeVisual]);
+
+  // Calculate node impact when a node is selected
+  useEffect(() => {
+    if (!selectedNode || !calcClient) return;
+    if (selectedNode.type === "classStart" || selectedNode.type === "mastery") return;
+
+    let cancelled = false;
+    setImpactLoading(true);
+    setNodeImpact(null);
+
+    calcClient.calcNodeImpact(selectedNode.hash)
+      .then((impact) => {
+        if (!cancelled) {
+          setNodeImpact(impact);
+          setImpactLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setImpactLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [selectedNode, calcClient, allocatedNodes]);
+
+  // Close detail panel on background tap
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el || !selectedNode) return;
+
+    const onClick = () => {
+      // If a node was just tapped, don't close
+      if (nodeTappedRef.current) {
+        nodeTappedRef.current = false;
+        return;
+      }
+      selectedNodeRef.current = null;
+      setSelectedNode(null);
+      setNodeImpact(null);
+    };
+
+    // Use a slight delay so node tap fires first
+    const handler = () => setTimeout(onClick, 0);
+    el.addEventListener("click", handler);
+    return () => el.removeEventListener("click", handler);
+  }, [selectedNode]);
+
+  // Update node visuals and connection colors when allocation changes
+  useEffect(() => {
+    const nodes = nodesRef.current;
+    const connGfx = connGfxRef.current;
+    const connections = connectionsDataRef.current;
+    if (!connGfx || !nodes.size) return;
+
+    connGfx.clear();
+    for (const conn of connections) {
+      const from = nodes.get(conn.from);
+      const to = nodes.get(conn.to);
+      if (!from || !to) continue;
+      if (from.ascendancy !== to.ascendancy) continue;
+
+      const isConnAllocated = allocatedNodes.has(from.hash) && allocatedNodes.has(to.hash);
+      connGfx.moveTo(from.x, from.y);
+      connGfx.lineTo(to.x, to.y);
+      connGfx.stroke({
+        width: isConnAllocated ? 12 : 6,
+        color: isConnAllocated ? COLORS.connectionAllocated : COLORS.connection,
+        alpha: isConnAllocated ? 0.9 : 0.35,
+      });
+    }
+
+    const atlases = atlasesRef.current;
+    for (const [id, container] of nodeGfxRef.current) {
+      const node = nodes.get(id);
+      if (!node || node.ascendancy) continue;
+      const isAllocated = allocatedNodes.has(node.hash);
+      if ((container as any).__allocated === isAllocated) continue;
+      (container as any).__allocated = isAllocated;
+
+      container.removeChildren();
+      const newVisual = createNodeVisual(node, isAllocated, atlases);
+      while (newVisual.children.length > 0) {
+        container.addChild(newVisual.children[0]!);
+      }
+    }
+  }, [allocatedNodes, createNodeVisual]);
 
   // Heatmap overlay
   useEffect(() => {
@@ -491,11 +593,52 @@ export function PassiveTree({ treeData, heatmapData, searchQuery }: Props) {
     };
   }, [searchQuery]);
 
+  const [allocating, setAllocating] = useState(false);
+
+  const handleAllocate = useCallback(async () => {
+    if (!selectedNode || !calcClient || allocating) return;
+    setAllocating(true);
+    try {
+      const result = await calcClient.allocNode(selectedNode.hash);
+      if (result.success) {
+        setAllocatedNodes(result.allocatedNodes);
+        if (result.display) setCalcDisplay(result.display);
+      }
+    } catch (e) {
+      console.error("[PoB] allocNode failed:", e);
+    } finally {
+      setAllocating(false);
+      selectedNodeRef.current = null;
+      setSelectedNode(null);
+      setNodeImpact(null);
+    }
+  }, [selectedNode, calcClient, allocating, setAllocatedNodes, setCalcDisplay]);
+
+  const handleDeallocate = useCallback(async () => {
+    if (!selectedNode || !calcClient || allocating) return;
+    setAllocating(true);
+    try {
+      const result = await calcClient.deallocNode(selectedNode.hash);
+      if (result.success) {
+        setAllocatedNodes(result.allocatedNodes);
+        if (result.display) setCalcDisplay(result.display);
+      }
+    } catch (e) {
+      console.error("[PoB] deallocNode failed:", e);
+    } finally {
+      setAllocating(false);
+      selectedNodeRef.current = null;
+      setSelectedNode(null);
+      setNodeImpact(null);
+    }
+  }, [selectedNode, calcClient, allocating, setAllocatedNodes, setCalcDisplay]);
+
   return (
     <div className="relative h-full w-full">
       <div ref={canvasRef} className="h-full w-full touch-none" />
 
-      {tooltip && (
+      {/* Tooltip (only when no detail panel) */}
+      {tooltip && !selectedNode && (
         <div
           className="pointer-events-none absolute z-50 max-w-xs rounded border border-poe-border bg-poe-panel/95 p-3 shadow-lg backdrop-blur-sm"
           style={{
@@ -514,6 +657,21 @@ export function PassiveTree({ treeData, heatmapData, searchQuery }: Props) {
             <p key={i} className="text-xs text-gray-300">{stat}</p>
           ))}
         </div>
+      )}
+
+      {/* Node detail panel */}
+      {selectedNode && (
+        <NodeDetailPanel
+          node={selectedNode}
+          isAllocated={allocatedNodes.has(selectedNode.hash)}
+          impact={nodeImpact}
+          impactLoading={impactLoading}
+          allocating={allocating}
+          jewelInfo={selectedNode.type === "jewel" ? jewelData?.[String(selectedNode.hash)] ?? null : null}
+          onAllocate={handleAllocate}
+          onDeallocate={handleDeallocate}
+          onClose={() => { selectedNodeRef.current = null; setSelectedNode(null); setNodeImpact(null); }}
+        />
       )}
     </div>
   );

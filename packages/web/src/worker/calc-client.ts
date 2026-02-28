@@ -2,7 +2,7 @@
  * Client-side wrapper for the PoB calculation Web Worker.
  * Provides a promise-based API for sending commands and receiving results.
  */
-import type { CalcRequest, CalcResponse } from "./calc-api";
+import type { CalcRequest, CalcResponse, SkillsData, SwitchSkillResult, NodeImpact, AllocResult, CalcSection, JewelInfo } from "./calc-api";
 
 export class CalcClient {
   private worker: Worker;
@@ -55,6 +55,54 @@ export class CalcClient {
     const res = await this.send({ type: "getStats" });
     if (res.type === "stats") return res.data;
     return {};
+  }
+
+  async getSkills(): Promise<SkillsData> {
+    const res = await this.send({ type: "getSkills" });
+    if (res.type === "skills") return res.data;
+    return { mainSocketGroup: 1, fullDps: 0, skills: [], groups: [] };
+  }
+
+  async switchMainSkill(index: number): Promise<SwitchSkillResult> {
+    const res = await this.send({ type: "switchMainSkill", index });
+    if (res.type === "switchMainSkill") return res.data;
+    return { stats: {} as any, fullDps: 0, skills: [] };
+  }
+
+  async getDefence(): Promise<Record<string, number>> {
+    const res = await this.send({ type: "getDefence" });
+    if (res.type === "defence") return res.data;
+    return {};
+  }
+
+  async getCalcDisplay(): Promise<CalcSection[]> {
+    const res = await this.send({ type: "getCalcDisplay" });
+    if (res.type === "calcDisplay") return res.data;
+    return [];
+  }
+
+  async getJewels(): Promise<Record<string, JewelInfo>> {
+    const res = await this.send({ type: "getJewels" });
+    if (res.type === "jewels") return res.data;
+    return {};
+  }
+
+  async allocNode(nodeId: number): Promise<AllocResult> {
+    const res = await this.send({ type: "allocNode", nodeId });
+    if (res.type === "allocNode") return res.data;
+    return { success: false, allocatedNodes: [] };
+  }
+
+  async deallocNode(nodeId: number): Promise<AllocResult> {
+    const res = await this.send({ type: "deallocNode", nodeId });
+    if (res.type === "deallocNode") return res.data;
+    return { success: false, allocatedNodes: [] };
+  }
+
+  async calcNodeImpact(nodeId: number): Promise<NodeImpact> {
+    const res = await this.send({ type: "calcNodeImpact", nodeId });
+    if (res.type === "nodeImpact") return res.data;
+    return { deltas: {}, pathCount: 1 };
   }
 
   async getNodePower(stat: "dps" | "life" | "es"): Promise<Record<number, number>> {

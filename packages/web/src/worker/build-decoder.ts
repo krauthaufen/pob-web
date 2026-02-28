@@ -6,15 +6,43 @@
  */
 import pako from "pako";
 
-export function decodeBuildCode(code: string): string {
-  // Strip any URL prefix (e.g. from pobb.in or similar)
-  let cleaned = code.trim();
+/**
+ * Check if input is a poe.ninja profile URL and extract account/character.
+ * Supports formats:
+ *   https://poe.ninja/poe2/profile/{account}/character/{character}
+ *   https://poe.ninja/poe2/profile/{account}/character/{character}?...
+ */
+export function parsePoeNinjaUrl(input: string): { account: string; character: string } | null {
+  const match = input.trim().match(
+    /poe\.ninja\/poe2\/profile\/([^/]+)\/character\/([^/?#]+)/
+  );
+  if (!match) return null;
+  return { account: match[1]!, character: match[2]! };
+}
 
-  // Handle pobb.in and similar URL formats
-  const urlMatch = cleaned.match(/(?:pobb\.in|poe\.ninja)\/[^/]*\/([A-Za-z0-9_-]+)/);
-  if (urlMatch) {
-    cleaned = urlMatch[1]!;
+/**
+ * Fetch a PoB build code from a poe.ninja character profile.
+ * Uses a proxy in dev (/poe-ninja-api) to avoid CORS.
+ */
+export async function fetchPoeNinjaBuild(account: string, character: string): Promise<string> {
+  // In dev, the Vite proxy rewrites /poe-ninja-api → https://poe.ninja
+  // In prod, you'd need your own proxy or a CORS-friendly endpoint
+  const base = import.meta.env.DEV ? "/poe-ninja-api" : "https://poe.ninja";
+  const url = `${base}/poe2/api/profile/characters/${encodeURIComponent(account)}/${encodeURIComponent(character)}/model/0`;
+
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`poe.ninja returned ${resp.status}`);
+
+  const data = await resp.json();
+  if (!data.hasData || !data.charModel?.pathOfBuildingExport) {
+    throw new Error("Character not found or has no PoB export");
   }
+
+  return data.charModel.pathOfBuildingExport;
+}
+
+export function decodeBuildCode(code: string): string {
+  const cleaned = code.trim();
 
   // URL-safe base64 → standard base64
   const b64 = cleaned.replace(/-/g, "+").replace(/_/g, "/");

@@ -66,7 +66,29 @@ async function loadPobFiles(FS: any): Promise<number> {
   // src/ files → /pob/src/
   // runtime/ files → /pob/runtime/
   for (const [path, content] of entries) {
-    writeFile(FS, `/pob/${path}`, content as string);
+    let text = content as string;
+
+    // Patch dkjson.lua: PoB added sortedkeys() using table.sort as a global,
+    // but dkjson sets `local _ENV = nil` which blocks globals in Lua 5.2.
+    // Fix: capture table.sort as a local before _ENV is set to nil.
+    if (path === "runtime/lua/dkjson.lua") {
+      text = text.replace(
+        "local concat = table.concat",
+        "local concat = table.concat\nlocal sort = table.sort",
+      );
+      text = text.replace(/table\.sort\(/g, "sort(");
+    }
+
+    // Patch CalcDefence.lua: FrostShield division by zero when mitigation is 0.
+    // Produces NaN which crashes s_format("%d"). Guard with a zero check.
+    if (path === "src/Modules/CalcDefence.lua") {
+      text = text.replace(
+        'local lifeProtected = output["FrostShieldLife"] / (output["FrostShieldDamageMitigation"] / 100) * (1 - output["FrostShieldDamageMitigation"] / 100)',
+        'local lifeProtected = (output["FrostShieldDamageMitigation"] or 0) > 0 and (output["FrostShieldLife"] / (output["FrostShieldDamageMitigation"] / 100) * (1 - output["FrostShieldDamageMitigation"] / 100)) or 0',
+      );
+    }
+
+    writeFile(FS, `/pob/${path}`, text);
   }
 
   // Create user directory for PoB data
@@ -265,6 +287,25 @@ function pobWebLoadBuild(jsonArg)
   end
   -- Update build reference
   build = mainObject.main.modes["BUILD"]
+
+  -- If OnFrame failed, try to explicitly run BuildOutput so we have calc data
+  if not frameOk and build and build.calcsTab then
+    local calcOk, calcErr = pcall(function()
+      build.calcsTab:BuildOutput()
+    end)
+    if not calcOk then
+      print("BuildOutput fallback (non-fatal): " .. tostring(calcErr))
+    end
+  end
+
+  -- Run an extra OnFrame if calcsTab.mainOutput is still nil
+  if build and build.calcsTab and not build.calcsTab.mainOutput then
+    local retryOk, retryErr = pcall(runCallback, "OnFrame")
+    if not retryOk then
+      print("OnFrame retry (non-fatal): " .. tostring(retryErr))
+    end
+  end
+
   return dkjson.encode({ success = true })
 end
 
@@ -295,6 +336,439 @@ function pobWebGetStats(jsonArg)
     end
   end
   return dkjson.encode(stats)
+end
+
+function pobWebGetSkillsData(jsonArg)
+  if not build then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+
+  local output = build.calcsTab and build.calcsTab.mainOutput
+  local result = {
+    mainSocketGroup = build.mainSocketGroup or 1,
+    fullDps = output and (output.FullDPS or output.CombinedDPS) or 0,
+    skills = {},   -- per-skill DPS from SkillDPS
+    groups = {},   -- socket group metadata
+  }
+
+  -- Per-skill DPS from calcFullDPS (already computed at build load)
+  if output and output.SkillDPS then
+    for _, skill in ipairs(output.SkillDPS) do
+      table.insert(result.skills, {
+        name = skill.name or "Unknown",
+        dps = skill.dps or 0,
+        count = skill.count or 1,
+        trigger = skill.trigger or nil,
+        skillPart = skill.skillPart or nil,
+      })
+    end
+  end
+
+  -- Main skill detailed stats
+  if output then
+    result.mainSkillStats = {
+      TotalDPS = output.TotalDPS or 0,
+      CombinedDPS = output.CombinedDPS or 0,
+      TotalDot = output.TotalDot or 0,
+      BleedDPS = output.BleedDPS or 0,
+      IgniteDPS = output.IgniteDPS or 0,
+      PoisonDPS = output.PoisonDPS or 0,
+      Speed = output.Speed or 0,
+      CastSpeed = output.CastSpeed or 0,
+      CritChance = output.CritChance or 0,
+      CritMultiplier = output.CritMultiplier or 0,
+      AverageDamage = output.AverageDamage or 0,
+      ManaCost = output.ManaCost or 0,
+    }
+  end
+
+  -- Socket group metadata for dropdown
+  local skillsTab = build.skillsTab
+  if skillsTab and skillsTab.socketGroupList then
+    for i, group in ipairs(skillsTab.socketGroupList) do
+      -- Get the active skill name(s) for this group
+      local activeNames = {}
+      for _, gem in ipairs(group.gemList or {}) do
+        if gem.enabled ~= false then
+          local isSupport = gem.grantedEffect and gem.grantedEffect.support
+          if not isSupport then
+            table.insert(activeNames, gem.nameSpec or gem.name or "")
+          end
+        end
+      end
+      table.insert(result.groups, {
+        index = i,
+        label = group.label or "",
+        enabled = group.enabled ~= false,
+        slot = group.slot or "",
+        activeSkillNames = activeNames,
+        includeInFullDPS = group.includeInFullDPS or false,
+      })
+    end
+  end
+
+  return dkjson.encode(result)
+end
+
+function pobWebSwitchMainSkill(jsonArg)
+  if not build then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+  local args = dkjson.decode(jsonArg)
+  if not args or not args.index then
+    return dkjson.encode({ error = "missing index" })
+  end
+
+  -- Switch main socket group (matching PoB's dropdown handler)
+  build.mainSocketGroup = args.index
+  build.modFlag = true
+  build.buildFlag = true
+
+  -- Run OnFrame to trigger full recalc (not just BuildOutput)
+  local ok, err = pcall(runCallback, "OnFrame")
+  if not ok then
+    print("OnFrame after skill switch (non-fatal): " .. tostring(err))
+  end
+
+  -- Return updated main skill stats
+  local output = build.calcsTab and build.calcsTab.mainOutput
+  if not output then
+    return dkjson.encode({ error = "no calc output after switch" })
+  end
+
+  local stats = {
+    TotalDPS = output.TotalDPS or 0,
+    CombinedDPS = output.CombinedDPS or 0,
+    TotalDot = output.TotalDot or 0,
+    BleedDPS = output.BleedDPS or 0,
+    IgniteDPS = output.IgniteDPS or 0,
+    PoisonDPS = output.PoisonDPS or 0,
+    Speed = output.Speed or 0,
+    CastSpeed = output.CastSpeed or 0,
+    CritChance = output.CritChance or 0,
+    CritMultiplier = output.CritMultiplier or 0,
+    AverageDamage = output.AverageDamage or 0,
+    ManaCost = output.ManaCost or 0,
+  }
+
+  -- Also update SkillDPS
+  local skillDps = {}
+  if output.SkillDPS then
+    for _, skill in ipairs(output.SkillDPS) do
+      table.insert(skillDps, {
+        name = skill.name or "Unknown",
+        dps = skill.dps or 0,
+        count = skill.count or 1,
+      })
+    end
+  end
+
+  -- Also compute CalcDisplay for all panels to react
+  local displayData = dkjson.decode(pobWebGetCalcDisplay("{}"))
+
+  return dkjson.encode({
+    stats = stats,
+    fullDps = output.FullDPS or output.CombinedDPS or 0,
+    skills = skillDps,
+    display = displayData and displayData.sections or {},
+  })
+end
+
+function pobWebGetDefenceStats(jsonArg)
+  if not build or not build.calcsTab then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+  local output = build.calcsTab.mainOutput
+  if not output then
+    return dkjson.encode({ error = "no calc output" })
+  end
+
+  local stats = {}
+  for _, key in ipairs({
+    -- Pool
+    "Life", "LifeUnreserved", "LifeLeechRate", "LifeLeechGainRate",
+    "EnergyShield", "EnergyShieldLeechRate",
+    "Mana", "ManaUnreserved", "ManaLeechRate",
+    "Ward",
+    -- Regen (correct keys from CalcDefence.lua)
+    "LifeRegenRecovery", "NetLifeRegen",
+    "EnergyShieldRegenRecovery", "NetEnergyShieldRegen",
+    "ManaRegenRecovery", "NetManaRegen",
+    -- Mitigation
+    "Armour", "Evasion", "PhysicalDamageReduction", "PhysicalResist",
+    "EvadeChance", "MeleeEvadeChance",
+    "BlockChance", "SpellBlockChance",
+    "EffectiveBlockChance", "EffectiveSpellBlockChance",
+    "AttackDodgeChance", "SpellDodgeChance",
+    -- Resistances
+    "FireResist", "ColdResist", "LightningResist", "ChaosResist",
+    "FireResistTotal", "ColdResistTotal", "LightningResistTotal", "ChaosResistTotal",
+    "FireResistOverCap", "ColdResistOverCap", "LightningResistOverCap", "ChaosResistOverCap",
+    -- EHP / max hit
+    "TotalEHP", "TotalNumberOfHits",
+    "SecondMinimalMaximumHitTaken",
+    "PhysicalMaximumHitTaken", "FireMaximumHitTaken",
+    "ColdMaximumHitTaken", "LightningMaximumHitTaken", "ChaosMaximumHitTaken",
+    -- Misc
+    "MovementSpeedMod", "EffectiveMovementSpeedMod",
+    -- ES recharge
+    "EnergyShieldRecharge",
+  }) do
+    if output[key] then
+      stats[key] = output[key]
+    end
+  end
+
+  -- Debug: dump all numeric output keys so we can see what's available
+  local debugKeys = {}
+  for k, v in pairs(output) do
+    if type(v) == "number" and v ~= 0 then
+      debugKeys[#debugKeys + 1] = k
+    end
+  end
+  table.sort(debugKeys)
+  stats._availableKeys = debugKeys
+
+  return dkjson.encode(stats)
+end
+
+-- data module reference (for powerStatList)
+local _dataRef = nil
+function getDataRef()
+  if _dataRef then return _dataRef end
+  -- data is a global set by Launch.lua / Data.lua
+  if data then
+    _dataRef = data
+    return data
+  end
+  return nil
+end
+
+-- Helper: collect all allocated node hashes from the spec
+local function getAllocatedNodeList()
+  local nodes = {}
+  if build and build.spec and build.spec.allocNodes then
+    for hash, _ in pairs(build.spec.allocNodes) do
+      if type(hash) == "number" then
+        nodes[#nodes + 1] = hash
+      end
+    end
+  end
+  return nodes
+end
+
+-- Allocate a node using PoB's PassiveSpec:AllocNode
+function pobWebAllocNode(jsonArg)
+  if not build or not build.spec then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+  local args = dkjson.decode(jsonArg)
+  if not args or not args.nodeId then
+    return dkjson.encode({ error = "missing nodeId" })
+  end
+
+  local node = build.spec.nodes[args.nodeId]
+  if not node then
+    return dkjson.encode({ error = "node not found: " .. tostring(args.nodeId) })
+  end
+
+  if node.alloc then
+    return dkjson.encode({ success = true, allocatedNodes = getAllocatedNodeList() })
+  end
+
+  -- PoB handles pathing, path allocation, and dependencies
+  local allocOk, allocErr = pcall(function() build.spec:AllocNode(node) end)
+  if not allocOk then
+    return dkjson.encode({ error = "AllocNode failed: " .. tostring(allocErr) })
+  end
+
+  -- Trigger recalculation
+  build.buildFlag = true
+  local ok, err = pcall(runCallback, "OnFrame")
+  if not ok then
+    print("OnFrame after alloc (non-fatal): " .. tostring(err))
+  end
+
+  local displayData = dkjson.decode(pobWebGetCalcDisplay("{}"))
+  return dkjson.encode({ success = true, allocatedNodes = getAllocatedNodeList(), display = displayData and displayData.sections or {} })
+end
+
+-- Deallocate a node using PoB's PassiveSpec:DeallocNode
+function pobWebDeallocNode(jsonArg)
+  if not build or not build.spec then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+  local args = dkjson.decode(jsonArg)
+  if not args or not args.nodeId then
+    return dkjson.encode({ error = "missing nodeId" })
+  end
+
+  local node = build.spec.nodes[args.nodeId]
+  if not node then
+    return dkjson.encode({ error = "node not found: " .. tostring(args.nodeId) })
+  end
+
+  if not node.alloc then
+    return dkjson.encode({ success = true, allocatedNodes = getAllocatedNodeList() })
+  end
+
+  -- PoB handles orphan removal via node.depends
+  local deallocOk, deallocErr = pcall(function() build.spec:DeallocNode(node) end)
+  if not deallocOk then
+    return dkjson.encode({ error = "DeallocNode failed: " .. tostring(deallocErr) })
+  end
+
+  -- Trigger recalculation
+  build.buildFlag = true
+  local ok, err = pcall(runCallback, "OnFrame")
+  if not ok then
+    print("OnFrame after dealloc (non-fatal): " .. tostring(err))
+  end
+
+  local displayData = dkjson.decode(pobWebGetCalcDisplay("{}"))
+  return dkjson.encode({ success = true, allocatedNodes = getAllocatedNodeList(), display = displayData and displayData.sections or {} })
+end
+
+-- Calculate stat impact of adding/removing a node using PoB's own CalcsTab methods.
+-- For unallocated nodes: includes the full path (node.path) needed to reach the node.
+-- For allocated nodes: includes all dependents (node.depends) that would be orphaned.
+-- Uses data.powerStatList for stat selection and CalcsTab:CalculatePowerStat for deltas.
+function pobWebCalcNodeImpact(jsonArg)
+  if not build or not build.calcsTab then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+  local args = dkjson.decode(jsonArg)
+  if not args or not args.nodeId then
+    return dkjson.encode({ error = "missing nodeId" })
+  end
+
+  local node = build.spec.nodes[args.nodeId]
+  if not node then
+    return dkjson.encode({ error = "node not found: " .. tostring(args.nodeId) })
+  end
+
+  -- Use PoB's cached calculator from CalcsTab (populated by BuildOutput)
+  local miscOk, calcFunc, calcBase = pcall(build.calcsTab.GetMiscCalculator, build.calcsTab)
+  if not miscOk then
+    return dkjson.encode({ error = "GetMiscCalculator failed: " .. tostring(calcFunc) })
+  end
+
+  local pathCount = 1
+  local calcOk, output
+
+  if not node.alloc then
+    -- UNALLOCATED: include node.path (all nodes from allocated tree to this node)
+    local addNodes = {}
+    if node.path and #node.path > 0 then
+      for _, n in ipairs(node.path) do addNodes[n] = true end
+      pathCount = #node.path
+    else
+      addNodes[node] = true
+    end
+    calcOk, output = pcall(calcFunc, { addNodes = addNodes }, true)
+  else
+    -- ALLOCATED: include node.depends (all nodes that would become orphaned)
+    local removeNodes = {}
+    if node.depends and #node.depends > 0 then
+      for _, n in ipairs(node.depends) do removeNodes[n] = true end
+      pathCount = #node.depends
+    else
+      removeNodes[node] = true
+    end
+    calcOk, output = pcall(calcFunc, { removeNodes = removeNodes }, true)
+  end
+
+  if not calcOk then
+    return dkjson.encode({ error = "calc failed: " .. tostring(output) })
+  end
+
+  -- Use PoB's data.powerStatList and CalcsTab:CalculatePowerStat for each stat
+  local d = getDataRef()
+  local deltas = {}
+
+  if d and d.powerStatList then
+    for _, entry in ipairs(d.powerStatList) do
+      if entry.stat and not entry.ignoreForNodes then
+        local ok, delta = pcall(build.calcsTab.CalculatePowerStat, build.calcsTab, entry, output, calcBase)
+        if ok and type(delta) == "number" and math.abs(delta) > 0.01 then
+          deltas[entry.stat] = { value = delta, label = entry.label }
+        end
+      end
+    end
+  end
+
+  return dkjson.encode({ deltas = deltas, pathCount = pathCount })
+end
+
+-- Get structured calc display using PoB's CalcSections and CheckFlag visibility
+function pobWebGetCalcDisplay(jsonArg)
+  if not build or not build.calcsTab then
+    return dkjson.encode({ sections = {} })
+  end
+  local output = build.calcsTab.mainOutput
+  if not output then
+    return dkjson.encode({ sections = {} })
+  end
+  local sections = {}
+  for _, section in ipairs(build.calcsTab.sectionList) do
+    local sOk, sVisible = pcall(build.calcsTab.CheckFlag, build.calcsTab, section)
+    if sOk and sVisible then
+      local sData = { id = section.id, group = section.group, subsections = {} }
+      for _, sub in ipairs(section.subSection) do
+        local subOk, subVisible = pcall(build.calcsTab.CheckFlag, build.calcsTab, sub)
+        if subOk and subVisible then
+          local subData = { label = sub.label or "", stats = {} }
+          for _, rowData in ipairs(sub) do
+            local rOk, rVisible = pcall(build.calcsTab.CheckFlag, build.calcsTab, rowData)
+            if rOk and rVisible and rowData.label then
+              local row = { label = rowData.label, values = {} }
+              for _, colData in ipairs(rowData) do
+                if colData.format then
+                  for decimals, key in colData.format:gmatch("{(%d+):output:([^}]+)}") do
+                    local val = output[key]
+                    if val and type(val) == "number" and val ~= 0 then
+                      row.values[#row.values + 1] = {
+                        key = key, value = val, decimals = tonumber(decimals)
+                      }
+                    end
+                  end
+                end
+              end
+              if #row.values > 0 then
+                subData.stats[#subData.stats + 1] = row
+              end
+            end
+          end
+          if #subData.stats > 0 then
+            sData.subsections[#sData.subsections + 1] = subData
+          end
+        end
+      end
+      if #sData.subsections > 0 then
+        sections[#sections + 1] = sData
+      end
+    end
+  end
+  return dkjson.encode({ sections = sections })
+end
+
+-- Get jewel socket data from PoB's PassiveSpec and ItemsTab
+function pobWebGetJewelData(jsonArg)
+  local result = {}
+  if build and build.spec and build.spec.jewels and build.itemsTab then
+    for nodeId, itemId in pairs(build.spec.jewels) do
+      if itemId and type(itemId) == "number" and itemId > 0 then
+        local item = build.itemsTab.items[itemId]
+        if item then
+          result[tostring(nodeId)] = {
+            name = item.title or item.name or "Unknown Jewel",
+            rarity = item.rarity or "Normal",
+          }
+        end
+      end
+    end
+  end
+  return dkjson.encode(result)
 end
 `;
 
@@ -390,6 +864,152 @@ self.onmessage = async (e: MessageEvent<CalcRequest & { _id?: string }>) => {
         respond(_id, { type: "stats", data });
       } catch (e) {
         respond(_id, { type: "stats", data: {}, error: String(e) });
+      }
+      break;
+    }
+
+    case "getSkills": {
+      const emptySkills = { mainSocketGroup: 1, fullDps: 0, skills: [], groups: [] };
+      if (!initialized) {
+        respond(_id, { type: "skills", data: emptySkills, error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebGetSkillsData", "{}");
+        const data = JSON.parse(result);
+        if (data.error) {
+          respond(_id, { type: "skills", data: emptySkills, error: data.error });
+        } else {
+          respond(_id, { type: "skills", data });
+        }
+      } catch (e) {
+        respond(_id, { type: "skills", data: emptySkills, error: String(e) });
+      }
+      break;
+    }
+
+    case "switchMainSkill": {
+      if (!initialized) {
+        respond(_id, { type: "switchMainSkill", data: { stats: {} as any, fullDps: 0, skills: [] }, error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebSwitchMainSkill", JSON.stringify({ index: msg.index }));
+        const data = JSON.parse(result);
+        if (data.error) {
+          respond(_id, { type: "switchMainSkill", data: { stats: {} as any, fullDps: 0, skills: [] }, error: data.error });
+        } else {
+          respond(_id, { type: "switchMainSkill", data });
+        }
+      } catch (e) {
+        respond(_id, { type: "switchMainSkill", data: { stats: {} as any, fullDps: 0, skills: [] }, error: String(e) });
+      }
+      break;
+    }
+
+    case "getDefence": {
+      if (!initialized) {
+        respond(_id, { type: "defence", data: {}, error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebGetDefenceStats", "{}");
+        const data = JSON.parse(result);
+        respond(_id, { type: "defence", data });
+      } catch (e) {
+        respond(_id, { type: "defence", data: {}, error: String(e) });
+      }
+      break;
+    }
+
+    case "getCalcDisplay": {
+      if (!initialized) {
+        respond(_id, { type: "calcDisplay", data: [], error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebGetCalcDisplay", "{}");
+        const parsed = JSON.parse(result);
+        respond(_id, { type: "calcDisplay", data: parsed.sections || [] });
+      } catch (e) {
+        respond(_id, { type: "calcDisplay", data: [], error: String(e) });
+      }
+      break;
+    }
+
+    case "getJewels": {
+      if (!initialized) {
+        respond(_id, { type: "jewels", data: {}, error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebGetJewelData", "{}");
+        const data = JSON.parse(result);
+        respond(_id, { type: "jewels", data });
+      } catch (e) {
+        respond(_id, { type: "jewels", data: {}, error: String(e) });
+      }
+      break;
+    }
+
+    case "allocNode": {
+      const emptyAlloc = { success: false, allocatedNodes: [] as number[] };
+      if (!initialized) {
+        respond(_id, { type: "allocNode", data: emptyAlloc, error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebAllocNode", JSON.stringify({ nodeId: msg.nodeId }));
+        const data = JSON.parse(result);
+        if (data.error) {
+          respond(_id, { type: "allocNode", data: emptyAlloc, error: data.error });
+        } else {
+          respond(_id, { type: "allocNode", data });
+        }
+      } catch (e) {
+        respond(_id, { type: "allocNode", data: emptyAlloc, error: String(e) });
+      }
+      break;
+    }
+
+    case "deallocNode": {
+      const emptyDealloc = { success: false, allocatedNodes: [] as number[] };
+      if (!initialized) {
+        respond(_id, { type: "deallocNode", data: emptyDealloc, error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebDeallocNode", JSON.stringify({ nodeId: msg.nodeId }));
+        const data = JSON.parse(result);
+        if (data.error) {
+          respond(_id, { type: "deallocNode", data: emptyDealloc, error: data.error });
+        } else {
+          respond(_id, { type: "deallocNode", data });
+        }
+      } catch (e) {
+        respond(_id, { type: "deallocNode", data: emptyDealloc, error: String(e) });
+      }
+      break;
+    }
+
+    case "calcNodeImpact": {
+      const emptyImpact = { deltas: {}, pathCount: 1 };
+      if (!initialized) {
+        respond(_id, { type: "nodeImpact", data: emptyImpact, error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebCalcNodeImpact", JSON.stringify({
+          nodeId: msg.nodeId,
+        }));
+        const data = JSON.parse(result);
+        if (data.error) {
+          respond(_id, { type: "nodeImpact", data: emptyImpact, error: data.error });
+        } else {
+          respond(_id, { type: "nodeImpact", data });
+        }
+      } catch (e) {
+        respond(_id, { type: "nodeImpact", data: emptyImpact, error: String(e) });
       }
       break;
     }

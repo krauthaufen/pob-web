@@ -64,7 +64,7 @@ export function processTree(data: TreeData): {
     if (node.isJewelSocket) return "jewel";
     if (node.isMastery) return "mastery";
     if (node.isAscendancyStart) return "ascendancyStart";
-    if (node.classStartIndex != null) return "classStart";
+    if (node.classStartIndex != null || (node.classesStart && node.classesStart.length > 0)) return "classStart";
     return "normal";
   }
 
@@ -88,7 +88,7 @@ export function processTree(data: TreeData): {
     // Skip decorative-only nodes (mastery group centers, etc.)
     if (node.isOnlyImage) continue;
     // Skip nodes with no name (unless they are structural)
-    if (!node.name && !node.isAscendancyStart && node.classStartIndex == null) continue;
+    if (!node.name && !node.isAscendancyStart && !node.isJewelSocket && node.classStartIndex == null && !(node.classesStart && node.classesStart.length > 0)) continue;
 
     const type = getNodeType(node);
 

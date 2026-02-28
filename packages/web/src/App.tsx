@@ -1,21 +1,29 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { ImportPanel } from "@/components/ImportExport/ImportPanel";
+import { ImportPanel, EXAMPLE_CODE } from "@/components/ImportExport/ImportPanel";
 import { StatsPanel } from "@/components/StatsPanel/StatsPanel";
+import { SkillsPanel } from "@/components/StatsPanel/SkillsPanel";
+import { DefencePanel } from "@/components/StatsPanel/DefencePanel";
 import { PassiveTree } from "@/components/PassiveTree/PassiveTree";
 import { useBuildStore } from "@/store/build-store";
+import type { DefenceStats } from "@/store/build-store";
 import type { TreeData } from "@/components/PassiveTree/tree-types";
 import { CalcClient } from "@/worker/calc-client";
+import { decodeBuildCode, parseBuildXml, parsePoeNinjaUrl, fetchPoeNinjaBuild } from "@/worker/build-decoder";
 
 export function App() {
   const [treeData, setTreeData] = useState<TreeData | null>(null);
   const [treeLoading, setTreeLoading] = useState(true);
   const [treeSearch, setTreeSearch] = useState("");
-  const [sidePanel, setSidePanel] = useState<"stats" | "import">("import");
+  const [sidePanel, setSidePanel] = useState<"import" | "stats" | "skills" | "defence">("import");
   const [menuOpen, setMenuOpen] = useState(false);
   const build = useBuildStore((s) => s.build);
   const calcStatus = useBuildStore((s) => s.calcStatus);
   const setCalcStatus = useBuildStore((s) => s.setCalcStatus);
   const setStats = useBuildStore((s) => s.setStats);
+  const setSkillsData = useBuildStore((s) => s.setSkillsData);
+  const setDefenceStats = useBuildStore((s) => s.setDefenceStats);
+  const setCalcDisplay = useBuildStore((s) => s.setCalcDisplay);
+  const setJewelData = useBuildStore((s) => s.setJewelData);
   const [engineStatus, setEngineStatus] = useState<string>("idle");
   const [engineLogs, setEngineLogs] = useState<string[]>([]);
   const calcClientRef = useRef<CalcClient | null>(null);
@@ -49,7 +57,30 @@ export function App() {
       return;
     }
     setCalcStatus("calculating");
-    const stats = await client.getStats();
+
+    // Fetch stats, skills, defence, calcDisplay, and jewels independently
+    const [statsResult, skillsResult, defenceResult, displayResult, jewelsResult] = await Promise.allSettled([
+      client.getStats(),
+      client.getSkills(),
+      client.getDefence(),
+      client.getCalcDisplay(),
+      client.getJewels(),
+    ]);
+
+    const stats = statsResult.status === "fulfilled" ? statsResult.value : {};
+    const skills = skillsResult.status === "fulfilled" ? skillsResult.value : null;
+    const defence = defenceResult.status === "fulfilled" ? defenceResult.value : {};
+
+    if (statsResult.status === "rejected") console.error("[PoB] getStats failed:", statsResult.reason);
+    if (skillsResult.status === "rejected") console.error("[PoB] getSkills failed:", skillsResult.reason);
+    if (defenceResult.status === "rejected") console.error("[PoB] getDefence failed:", defenceResult.reason);
+
+    if (displayResult.status === "fulfilled") setCalcDisplay(displayResult.value);
+    else console.error("[PoB] getCalcDisplay failed:", displayResult.reason);
+
+    if (jewelsResult.status === "fulfilled") setJewelData(jewelsResult.value);
+    else console.error("[PoB] getJewels failed:", jewelsResult.reason);
+
     setStats({
       totalDps: stats.TotalDPS || stats.CombinedDPS || 0,
       hitDps: stats.TotalDPS || 0,
@@ -71,7 +102,47 @@ export function App() {
       chaosRes: stats.ChaosResist || 0,
       movementSpeed: 0,
     });
-  }, [setCalcStatus, setStats]);
+
+    if (skills) setSkillsData(skills);
+
+    // Log available defence keys for debugging
+    if (defence._availableKeys) {
+      console.log("[PoB] Defence output keys:", defence._availableKeys);
+    }
+
+    const d: DefenceStats = {
+      life: defence.Life || 0,
+      lifeUnreserved: defence.LifeUnreserved || 0,
+      lifeRegen: defence.NetLifeRegen || defence.LifeRegenRecovery || 0,
+      energyShield: defence.EnergyShield || 0,
+      esRegen: defence.NetEnergyShieldRegen || defence.EnergyShieldRegenRecovery || 0,
+      mana: defence.Mana || 0,
+      manaUnreserved: defence.ManaUnreserved || 0,
+      manaRegen: defence.NetManaRegen || defence.ManaRegenRecovery || 0,
+      ward: defence.Ward || 0,
+      armour: defence.Armour || 0,
+      evasion: defence.Evasion || 0,
+      physReduction: defence.PhysicalDamageReduction || defence.PhysicalResist || 0,
+      blockChance: defence.BlockChance || 0,
+      spellBlockChance: defence.SpellBlockChance || 0,
+      fireRes: defence.FireResist || 0,
+      coldRes: defence.ColdResist || 0,
+      lightningRes: defence.LightningResist || 0,
+      chaosRes: defence.ChaosResist || 0,
+      fireOverCap: defence.FireResistOverCap || 0,
+      coldOverCap: defence.ColdResistOverCap || 0,
+      lightningOverCap: defence.LightningResistOverCap || 0,
+      chaosOverCap: defence.ChaosResistOverCap || 0,
+      totalEhp: defence.TotalEHP || 0,
+      physMaxHit: defence.PhysicalMaximumHitTaken || 0,
+      fireMaxHit: defence.FireMaximumHitTaken || 0,
+      coldMaxHit: defence.ColdMaximumHitTaken || 0,
+      lightningMaxHit: defence.LightningMaximumHitTaken || 0,
+      chaosMaxHit: defence.ChaosMaximumHitTaken || 0,
+      movementSpeed: defence.MovementSpeedMod || 0,
+    };
+    setDefenceStats(d);
+  }, [setCalcStatus, setStats, setSkillsData, setDefenceStats, setCalcDisplay, setJewelData]);
 
   // Auto-init engine on mount
   useEffect(() => {
@@ -103,6 +174,26 @@ export function App() {
       });
   }, []);
 
+  // Auto-import example build on mount
+  useEffect(() => {
+    if (build) return; // already have a build
+    (async () => {
+      try {
+        let code = EXAMPLE_CODE;
+        const ninjaUrl = parsePoeNinjaUrl(code);
+        if (ninjaUrl) {
+          code = await fetchPoeNinjaBuild(ninjaUrl.account, ninjaUrl.character);
+        }
+        const xml = decodeBuildCode(code);
+        const parsed = parseBuildXml(xml);
+        useBuildStore.getState().setBuild(parsed);
+        useBuildStore.getState().setImportCode(code);
+      } catch (e) {
+        console.error("Auto-import failed:", e);
+      }
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (build) setSidePanel("stats");
   }, [build]);
@@ -128,6 +219,7 @@ export function App() {
           <PassiveTree
             treeData={treeData}
             searchQuery={treeSearch || undefined}
+            calcClient={calcClientRef.current}
           />
         )}
       </main>
@@ -219,29 +311,27 @@ export function App() {
               </button>
             </div>
             <div className="flex border-b border-poe-border">
-              <button
-                className={`flex-1 px-3 py-2.5 text-xs font-medium transition ${
-                  sidePanel === "import"
-                    ? "border-b-2 border-poe-accent text-poe-accent"
-                    : "text-gray-400 hover:text-gray-200"
-                }`}
-                onClick={() => setSidePanel("import")}
-              >
-                Import
-              </button>
-              <button
-                className={`flex-1 px-3 py-2.5 text-xs font-medium transition ${
-                  sidePanel === "stats"
-                    ? "border-b-2 border-poe-accent text-poe-accent"
-                    : "text-gray-400 hover:text-gray-200"
-                }`}
-                onClick={() => setSidePanel("stats")}
-              >
-                Stats
-              </button>
+              {(["import", "stats", "skills", "defence"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  className={`flex-1 px-2 py-2.5 text-xs font-medium transition ${
+                    sidePanel === tab
+                      ? "border-b-2 border-poe-accent text-poe-accent"
+                      : "text-gray-400 hover:text-gray-200"
+                  }`}
+                  onClick={() => setSidePanel(tab)}
+                >
+                  {tab === "import" ? "Import" :
+                   tab === "stats" ? "Stats" :
+                   tab === "skills" ? "Skills" : "Defence"}
+                </button>
+              ))}
             </div>
             <div className="flex-1 overflow-y-auto">
-              {sidePanel === "import" ? <ImportPanel /> : <StatsPanel />}
+              {sidePanel === "import" ? <ImportPanel /> :
+               sidePanel === "stats" ? <StatsPanel /> :
+               sidePanel === "skills" ? <SkillsPanel calcClient={calcClientRef.current} /> :
+               <DefencePanel />}
             </div>
           </aside>
         </div>

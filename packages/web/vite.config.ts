@@ -17,6 +17,13 @@ export default defineConfig({
   },
   server: {
     host: "0.0.0.0",
+    proxy: {
+      "/poe-ninja-api": {
+        target: "https://poe.ninja",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/poe-ninja-api/, ""),
+      },
+    },
   },
   assetsInclude: ["**/*.wasm"],
 });

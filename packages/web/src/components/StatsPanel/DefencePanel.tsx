@@ -9,7 +9,6 @@ function formatValue(value: number, decimals: number): string {
 }
 
 function CalcRow({ row }: { row: CalcStatRow }) {
-  // Show first value prominently (primary column)
   const primary = row.values[0];
   if (!primary) return null;
   return (
@@ -44,13 +43,13 @@ function CalcSectionView({ section }: { section: CalcSection }) {
   );
 }
 
-export function StatsPanel() {
+export function DefencePanel() {
   const { calcDisplay, build, calcStatus } = useBuildStore();
 
   if (!build) {
     return (
       <div className="p-4 text-center text-xs text-gray-500">
-        Import a build to see stats
+        Import a build to see defences
       </div>
     );
   }
@@ -63,24 +62,24 @@ export function StatsPanel() {
     );
   }
 
-  // Group 1 = Offence, Group 2 = Pools (Life/Mana/ES/Spirit)
-  const offenceSections = calcDisplay?.filter(s => s.group === 1) ?? [];
+  // Group 3 = Defence, Group 2 = Pools
+  const defenceSections = calcDisplay?.filter(s => s.group === 3) ?? [];
   const poolSections = calcDisplay?.filter(s => s.group === 2) ?? [];
 
   return (
     <div className="flex flex-col gap-4 p-4">
-      {/* Build info header */}
+      {/* Build info */}
       <div>
         <h2 className="text-sm font-semibold text-poe-accent">
           {build.ascendancy || build.className}
         </h2>
         <p className="text-xs text-gray-400">
-          Level {build.level} — {build.nodes.length} passives
+          Level {build.level}
         </p>
       </div>
 
-      {/* Offence sections from CalcDisplay */}
-      {offenceSections.map((section) => (
+      {/* Defence sections from CalcDisplay */}
+      {defenceSections.map((section) => (
         <CalcSectionView key={section.id} section={section} />
       ))}
 
@@ -88,26 +87,6 @@ export function StatsPanel() {
       {poolSections.map((section) => (
         <CalcSectionView key={section.id} section={section} />
       ))}
-
-      {/* Items summary */}
-      <div>
-        <h3 className="mb-1 border-b border-poe-border pb-1 text-xs font-semibold uppercase tracking-wider text-gray-300">
-          Items ({build.items.filter(i => i.slot).length} equipped)
-        </h3>
-        {build.items.filter(i => i.slot).map((item, i) => (
-          <div key={i} className="flex justify-between py-0.5 text-xs">
-            <span className="text-gray-500">{item.slot}</span>
-            <span className={
-              item.rarity === "Unique" ? "text-poe-accent" :
-              item.rarity === "Rare" ? "text-yellow-400" :
-              item.rarity === "Magic" ? "text-blue-400" :
-              "text-poe-text"
-            }>
-              {item.name || item.base}
-            </span>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
