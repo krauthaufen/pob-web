@@ -390,9 +390,11 @@ function pobWebGetSkillsData(jsonArg)
       local activeNames = {}
       for _, gem in ipairs(group.gemList or {}) do
         if gem.enabled ~= false then
-          local isSupport = gem.grantedEffect and gem.grantedEffect.support
+          -- Check support via gemData.grantedEffect.support (PoB's canonical check)
+          local grantedEffect = gem.gemData and gem.gemData.grantedEffect or gem.grantedEffect
+          local isSupport = grantedEffect and grantedEffect.support
           if not isSupport then
-            table.insert(activeNames, gem.nameSpec or gem.name or "")
+            table.insert(activeNames, gem.nameSpec or (gem.gemData and gem.gemData.name) or gem.name or "")
           end
         end
       end
@@ -709,41 +711,56 @@ function pobWebGetCalcDisplay(jsonArg)
   if not output then
     return dkjson.encode({ sections = {} })
   end
+  if not build.calcsTab.sectionList then
+    return dkjson.encode({ sections = {} })
+  end
+
   local sections = {}
+
   for _, section in ipairs(build.calcsTab.sectionList) do
     local sOk, sVisible = pcall(build.calcsTab.CheckFlag, build.calcsTab, section)
     if sOk and sVisible then
       local sData = { id = section.id, group = section.group, subsections = {} }
+
+      -- subSection[i] = { label = "...", data = { flag = "...", [1]=row, [2]=row, ... } }
       for _, sub in ipairs(section.subSection) do
-        local subOk, subVisible = pcall(build.calcsTab.CheckFlag, build.calcsTab, sub)
-        if subOk and subVisible then
-          local subData = { label = sub.label or "", stats = {} }
-          for _, rowData in ipairs(sub) do
-            local rOk, rVisible = pcall(build.calcsTab.CheckFlag, build.calcsTab, rowData)
-            if rOk and rVisible and rowData.label then
-              local row = { label = rowData.label, values = {} }
-              for _, colData in ipairs(rowData) do
-                if colData.format then
-                  for decimals, key in colData.format:gmatch("{(%d+):output:([^}]+)}") do
-                    local val = output[key]
-                    if val and type(val) == "number" and val ~= 0 then
-                      row.values[#row.values + 1] = {
-                        key = key, value = val, decimals = tonumber(decimals)
-                      }
-                    end
+        local subData = { label = sub.label or "", stats = {} }
+        local dataBlock = sub.data
+        if not dataBlock then goto continue_sub end
+
+        local subOk, subVisible = pcall(build.calcsTab.CheckFlag, build.calcsTab, dataBlock)
+        if not (subOk and subVisible) then goto continue_sub end
+
+        for _, rowData in ipairs(dataBlock) do
+          local rOk, rVisible = pcall(build.calcsTab.CheckFlag, build.calcsTab, rowData)
+          if rOk and rVisible and rowData.label then
+            -- Strip PoB color codes (^7, ^xRRGGBB)
+            local cleanLabel = rowData.label:gsub("%^%d",""):gsub("%^x%x%x%x%x%x%x","")
+            local row = { label = cleanLabel, values = {} }
+            for _, colData in ipairs(rowData) do
+              if type(colData) == "table" and colData.format then
+                for decimals, key in colData.format:gmatch("{(%d+):output:([^}]+)}") do
+                  local val = output[key]
+                  if val and type(val) == "number" and val ~= 0 then
+                    row.values[#row.values + 1] = {
+                      key = key, value = val, decimals = tonumber(decimals)
+                    }
                   end
                 end
               end
-              if #row.values > 0 then
-                subData.stats[#subData.stats + 1] = row
-              end
+            end
+            if #row.values > 0 then
+              subData.stats[#subData.stats + 1] = row
             end
           end
-          if #subData.stats > 0 then
-            sData.subsections[#sData.subsections + 1] = subData
-          end
         end
+
+        if #subData.stats > 0 then
+          sData.subsections[#sData.subsections + 1] = subData
+        end
+        ::continue_sub::
       end
+
       if #sData.subsections > 0 then
         sections[#sections + 1] = sData
       end
