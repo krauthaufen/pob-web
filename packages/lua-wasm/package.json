@@ -1,0 +1,9 @@
+{
+  "name": "@pob-web/lua-wasm",
+  "private": true,
+  "version": "0.0.1",
+  "scripts": {
+    "download-lua": "node scripts/download-lua.mjs",
+    "build": "node scripts/build.mjs"
+  }
+}

@@ -1,0 +1,3 @@
+[submodule "vendor/PathOfBuilding-PoE2"]
+	path = vendor/PathOfBuilding-PoE2
+	url = https://github.com/PathOfBuildingCommunity/PathOfBuilding-PoE2.git

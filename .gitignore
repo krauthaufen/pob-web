@@ -1,0 +1,18 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+.env
+.vite/
+.claude/
+
+# Lua WASM build artifacts
+packages/lua-wasm/lua-5.2.4/
+packages/lua-wasm/build/
+packages/lua-wasm/dist/
+packages/pob-data/dist/
+
+# Generated assets (rebuild via convert-sprites.mjs)
+packages/web/public/data/sprites/
+packages/web/public/data/tree.json
+packages/web/wasm/

@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --poe-bg: #0c0c0e;
+    --poe-panel: #1a1a2e;
+    --poe-border: #2a2a3e;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #2a2a3e #0c0c0e;
+  }
+}

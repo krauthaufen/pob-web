@@ -1,0 +1,19 @@
+{
+  "name": "pob-web",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Browser-based Path of Building for POE2",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm -w packages/web run dev",
+    "build": "npm -w packages/web run build",
+    "build:wasm": "npm -w packages/lua-wasm run build"
+  },
+  "dependencies": {
+    "@gpu-tex-enc/bc": "^1.0.11",
+    "decode-dxt": "^1.0.1",
+    "sharp": "^0.34.5"
+  }
+}
