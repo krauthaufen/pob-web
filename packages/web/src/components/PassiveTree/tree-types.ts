@@ -36,6 +36,7 @@ export interface TreeAscendancy {
   name: string;
   flavourText?: string;
   flavourTextColour?: string;
+  background?: { x: number; y: number; width: number; height: number; image: string };
 }
 
 export interface TreeGroup {
@@ -73,6 +74,7 @@ export interface TreeNode {
   grantedDexterity?: number;
   grantedIntelligence?: number;
   grantedPassivePoints?: number;
+  nodeOverlay?: { alloc: string; path: string; unalloc: string };
 }
 
 export interface ProcessedNode {
@@ -87,4 +89,5 @@ export interface ProcessedNode {
   ascendancy?: string;
   connections: string[];
   size: number; // render radius
+  nodeOverlay?: { alloc: string; path: string; unalloc: string };
 }

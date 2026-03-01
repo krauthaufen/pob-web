@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Application, Container, Graphics, Sprite } from "pixi.js";
+import { Application, Container, Graphics, Sprite, TilingSprite } from "pixi.js";
 import { useBuildStore } from "@/store/build-store";
 import type { ProcessedNode } from "./tree-types";
 import type { TreeData } from "./tree-types";
@@ -10,8 +10,10 @@ import { NodeDetailPanel } from "./NodeDetailPanel";
 import {
   loadTreeAtlases,
   getFrameTexture,
+  getAscFrameTexture,
   getIconTexture,
   getJewelTexture,
+  getSpriteTexture,
   type SpriteAtlas,
 } from "./sprite-loader";
 
@@ -74,6 +76,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
   const nodeGfxRef = useRef<Map<string, Container>>(new Map());
   const atlasesRef = useRef<Record<string, SpriteAtlas> | null>(null);
   const connGfxRef = useRef<Graphics | null>(null);
+  const ascConnGfxRef = useRef<Graphics | null>(null);
   const searchGfxRef = useRef<Graphics | null>(null);
   const searchMatchesRef = useRef<Array<{ x: number; y: number; r: number }>>([]);
   const connectionsDataRef = useRef<Array<{ from: string; to: string }>>([]);
@@ -289,7 +292,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
     const frameSize = FRAME_SIZE[node.type] ?? 26;
     const iconSize = ICON_SIZE[node.type] ?? 16;
 
-    // 1. Icon (base artwork) — for non-jewel nodes, icon goes behind frame
+    // 1. Icon (base artwork) — for non-jewel nodes, icon goes behind frame, clipped to circle
     let jewelTex: ReturnType<typeof getJewelTexture> = null;
     if (node.type === "jewel" && jewelInfo && atlases) {
       jewelTex = getJewelTexture(atlases, jewelInfo.name, jewelInfo.baseName);
@@ -300,12 +303,21 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
         iconSprite.anchor.set(0.5);
         iconSprite.width = iconSize;
         iconSprite.height = iconSize;
+        // Clip icon to circular frame bounds
+        const clipR = frameSize * 0.33;
+        const mask = new Graphics();
+        mask.circle(0, 0, clipR);
+        mask.fill({ color: 0xffffff });
+        container.addChild(mask);
+        iconSprite.mask = mask;
         container.addChild(iconSprite);
       }
     }
 
-    // 2. Frame overlay
-    const frameTex = atlases ? getFrameTexture(atlases, node.type, isAllocated) : null;
+    // 2. Frame overlay (use ascendancy-specific frames when available)
+    const frameTex = atlases
+      ? (node.nodeOverlay ? getAscFrameTexture(atlases, node.nodeOverlay, isAllocated) : getFrameTexture(atlases, node.type, isAllocated))
+      : null;
 
     if (frameTex) {
       const frameSprite = new Sprite(frameTex);
@@ -376,11 +388,12 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       const atlases = atlasesRef.current;
       const currentAllocated = useBuildStore.getState().allocatedNodes;
       const wsNodes = useBuildStore.getState().weaponSetNodes;
+      const activeAsc = useBuildStore.getState().build?.ascendancy || undefined;
 
       world.removeChildren();
       nodeGfxRef.current.clear();
 
-      const { nodes, connections, bounds } = processTree(treeData!);
+      const { nodes, connections, bounds } = processTree(treeData!, activeAsc);
       nodesRef.current = nodes;
       connectionsDataRef.current = connections;
 
@@ -394,39 +407,109 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       const scaleY = (screenH - padding * 2) / treeHeight;
       const fitScale = Math.min(scaleX, scaleY);
 
-      // Connection layer
+      // Background layer — single TilingSprite instead of hundreds of tiles
+      const bgAtlas = atlases["background_1024_1024_BC7"];
+      if (bgAtlas) {
+        const bgTex = getSpriteTexture(bgAtlas, "Background2");
+        if (bgTex) {
+          const pad = 2000;
+          const bgW = treeWidth + pad * 2;
+          const bgH = treeHeight + pad * 2;
+          const tiling = new TilingSprite({ texture: bgTex, width: bgW, height: bgH });
+          tiling.x = bounds.minX - pad;
+          tiling.y = bounds.minY - pad;
+          world.addChild(tiling);
+        }
+      }
+
+      // Main tree connection layer (below ascendancy backgrounds)
       const connGfx = new Graphics();
       connGfxRef.current = connGfx;
-      for (const conn of connections) {
-        const from = nodes.get(conn.from);
-        const to = nodes.get(conn.to);
-        if (!from || !to) continue;
-        if (from.ascendancy !== to.ascendancy) continue;
+      // Ascendancy connection layer (added after backgrounds)
+      const ascConnGfx = new Graphics();
+      ascConnGfxRef.current = ascConnGfx;
 
-        const isConnAllocated = currentAllocated.has(from.hash) && currentAllocated.has(to.hash);
-        let connColor = COLORS.connection;
+      function drawConn(gfx: Graphics, from: ProcessedNode, to: ProcessedNode, allocated: Set<number>, isAsc: boolean) {
+        const isConnAllocated = allocated.has(from.hash) && allocated.has(to.hash);
+        let connColor: number = isAsc ? 0xffffff : COLORS.connection;
         if (isConnAllocated) {
           const fromWs = wsNodes?.[from.hash];
           const toWs = wsNodes?.[to.hash];
           const ws = fromWs || toWs;
           connColor = ws === 1 ? COLORS.connectionWS1 : ws === 2 ? COLORS.connectionWS2 : COLORS.connectionAllocated;
         }
-
-        connGfx.moveTo(from.x, from.y);
-        connGfx.lineTo(to.x, to.y);
-        connGfx.stroke({
-          width: isConnAllocated ? 12 : 6,
+        gfx.moveTo(from.x, from.y);
+        gfx.lineTo(to.x, to.y);
+        gfx.stroke({
+          width: isConnAllocated ? 12 : 8,
           color: connColor,
-          alpha: isConnAllocated ? 0.9 : 0.35,
+          alpha: isConnAllocated ? 0.9 : 0.7,
         });
       }
+
+      for (const conn of connections) {
+        const from = nodes.get(conn.from);
+        const to = nodes.get(conn.to);
+        if (!from || !to) continue;
+        if (from.ascendancy !== to.ascendancy) continue;
+        if (from.ascendancy && from.ascendancy !== activeAsc) continue;
+
+        if (from.ascendancy) {
+          drawConn(ascConnGfx, from, to, currentAllocated, true);
+        } else {
+          drawConn(connGfx, from, to, currentAllocated, false);
+        }
+      }
       world.addChild(connGfx);
+
+      // Ascendancy background layers
+      if (activeAsc) {
+        // Find the ascendancy background dimensions from tree data
+        let ascBgSize = 1500;
+        for (const cls of treeData!.classes) {
+          for (const a of cls.ascendancies) {
+            if (a.name === activeAsc && a.background) {
+              ascBgSize = a.background.width;
+              break;
+            }
+          }
+        }
+        const bgTreeSize = ascBgSize * 2.5;
+        // Class-specific art behind the ring
+        const classBgAtlas = atlases["ascendancy-background_250_250_BC7"];
+        if (classBgAtlas) {
+          const classArtTex = getSpriteTexture(classBgAtlas, `Classes${activeAsc}`);
+          if (classArtTex) {
+            const classArtSprite = new Sprite(classArtTex);
+            classArtSprite.anchor.set(0.5);
+            classArtSprite.scale.set((ascBgSize * 2) / classArtTex.width);
+            classArtSprite.alpha = 0.6;
+            world.addChild(classArtSprite);
+          }
+        }
+        // BGTree ring on top
+        const ascBgAtlas = atlases["ascendancy-background_1000_1000_BC7"];
+        if (ascBgAtlas) {
+          const bgTreeTex = getSpriteTexture(ascBgAtlas, "BGTree");
+          if (bgTreeTex) {
+            const bgTreeSprite = new Sprite(bgTreeTex);
+            bgTreeSprite.anchor.set(0.5);
+            bgTreeSprite.scale.set(bgTreeSize / bgTreeTex.width);
+            bgTreeSprite.alpha = 0.8;
+            world.addChild(bgTreeSprite);
+          }
+        }
+      }
+
+      // Ascendancy connections above backgrounds
+      world.addChild(ascConnGfx);
 
       // Node layer
       const nodeLayer = new Container();
 
       for (const [id, node] of nodes) {
-        if (node.ascendancy) continue;
+        if (node.type === "ascendancyStart") continue;
+        if (node.ascendancy && node.ascendancy !== activeAsc) continue;
 
         const isAllocated = currentAllocated.has(node.hash);
         const curJewelData = useBuildStore.getState().jewelData;
@@ -536,34 +619,41 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
     const connections = connectionsDataRef.current;
     if (!connGfx || !nodes.size) return;
 
+    const activeAsc = useBuildStore.getState().build?.ascendancy || undefined;
+    const ascConnGfx = ascConnGfxRef.current;
     connGfx.clear();
+    if (ascConnGfx) ascConnGfx.clear();
     for (const conn of connections) {
       const from = nodes.get(conn.from);
       const to = nodes.get(conn.to);
       if (!from || !to) continue;
       if (from.ascendancy !== to.ascendancy) continue;
+      if (from.ascendancy && from.ascendancy !== activeAsc) continue;
 
+      const isAsc = !!from.ascendancy;
+      const gfx = isAsc && ascConnGfx ? ascConnGfx : connGfx;
       const isConnAllocated = allocatedNodes.has(from.hash) && allocatedNodes.has(to.hash);
-      let connColor = COLORS.connection;
+      let connColor: number = isAsc ? 0xffffff : COLORS.connection;
       if (isConnAllocated) {
         const fromWs = weaponSetNodes?.[from.hash];
         const toWs = weaponSetNodes?.[to.hash];
         const ws = fromWs || toWs;
         connColor = ws === 1 ? COLORS.connectionWS1 : ws === 2 ? COLORS.connectionWS2 : COLORS.connectionAllocated;
       }
-      connGfx.moveTo(from.x, from.y);
-      connGfx.lineTo(to.x, to.y);
-      connGfx.stroke({
-        width: isConnAllocated ? 12 : 6,
+      gfx.moveTo(from.x, from.y);
+      gfx.lineTo(to.x, to.y);
+      gfx.stroke({
+        width: isConnAllocated ? 12 : 8,
         color: connColor,
-        alpha: isConnAllocated ? 0.9 : 0.35,
+        alpha: isConnAllocated ? 0.9 : 0.7,
       });
     }
 
     const atlases = atlasesRef.current;
     for (const [id, container] of nodeGfxRef.current) {
       const node = nodes.get(id);
-      if (!node || node.ascendancy) continue;
+      if (!node || node.type === "ascendancyStart") continue;
+      if (node.ascendancy && node.ascendancy !== activeAsc) continue;
       const isAllocated = allocatedNodes.has(node.hash);
       const ji = node.type === "jewel" ? jewelData?.[String(node.hash)] ?? null : null;
       const prevJi = (container as any).__jewelInfo as string | undefined;
@@ -646,8 +736,9 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
     const query = searchQuery.toLowerCase();
     const matches: Array<{ x: number; y: number; r: number }> = [];
 
+    const activeAscSearch = useBuildStore.getState().build?.ascendancy || undefined;
     for (const [, node] of nodesRef.current) {
-      if (node.ascendancy) continue;
+      if (node.ascendancy && node.ascendancy !== activeAscSearch) continue;
       const hit = node.name.toLowerCase().includes(query) ||
         node.stats.some(s => s.toLowerCase().includes(query));
       if (hit) {

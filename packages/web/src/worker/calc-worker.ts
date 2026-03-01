@@ -343,6 +343,34 @@ function pobWebGetSkillsData(jsonArg)
     return dkjson.encode({ error = "no build loaded" })
   end
 
+  -- Auto-select highest DPS skill group
+  local skillsTab = build.skillsTab
+  if skillsTab and skillsTab.socketGroupList then
+    local bestIndex = build.mainSocketGroup or 1
+    local bestDps = 0
+
+    for i, group in ipairs(skillsTab.socketGroupList) do
+      if group.enabled ~= false then
+        build.mainSocketGroup = i
+        build.modFlag = true
+        build.buildFlag = true
+        pcall(runCallback, "OnFrame")
+        local o = build.calcsTab and build.calcsTab.mainOutput
+        local dps = o and (o.CombinedDPS or o.TotalDPS or 0) or 0
+        if dps > bestDps then
+          bestDps = dps
+          bestIndex = i
+        end
+      end
+    end
+
+    -- Switch to best group for final output
+    build.mainSocketGroup = bestIndex
+    build.modFlag = true
+    build.buildFlag = true
+    pcall(runCallback, "OnFrame")
+  end
+
   local output = build.calcsTab and build.calcsTab.mainOutput
   local result = {
     mainSocketGroup = build.mainSocketGroup or 1,
@@ -383,7 +411,6 @@ function pobWebGetSkillsData(jsonArg)
   end
 
   -- Socket group metadata for dropdown
-  local skillsTab = build.skillsTab
   if skillsTab and skillsTab.socketGroupList then
     for i, group in ipairs(skillsTab.socketGroupList) do
       -- Get the active skill name(s) for this group

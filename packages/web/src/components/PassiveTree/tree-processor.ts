@@ -10,7 +10,7 @@
  */
 import type { TreeData, TreeNode, ProcessedNode } from "./tree-types";
 
-export function processTree(data: TreeData): {
+export function processTree(data: TreeData, activeAscendancy?: string): {
   nodes: Map<string, ProcessedNode>;
   connections: Array<{ from: string; to: string }>;
   bounds: { minX: number; minY: number; maxX: number; maxY: number };
@@ -104,6 +104,7 @@ export function processTree(data: TreeData): {
       ascendancy: node.ascendancyName,
       connections: (node.connections ?? []).map(c => String(c.id)),
       size: getNodeSize(type),
+      nodeOverlay: node.nodeOverlay,
     });
   }
 
@@ -126,6 +127,55 @@ export function processTree(data: TreeData): {
     minY = Math.min(minY, node.y);
     maxX = Math.max(maxX, node.x);
     maxY = Math.max(maxY, node.y);
+  }
+
+  // Offset active ascendancy nodes to tree center (0, 0)
+  // background.x/y is top-left, so center = x + width/2, y + height/2
+  if (activeAscendancy) {
+    let cx = 0, cy = 0;
+    let bgW = 1500;
+    let found = false;
+    for (const cls of data.classes) {
+      for (const asc of cls.ascendancies) {
+        if (asc.name === activeAscendancy && asc.background) {
+          bgW = asc.background.width;
+          cx = asc.background.x;
+          cy = asc.background.y;
+          found = true;
+          break;
+        }
+      }
+      if (found) break;
+    }
+    if (!found) {
+      let count = 0;
+      for (const node of nodes.values()) {
+        if (node.ascendancy === activeAscendancy) {
+          cx += node.x;
+          cy += node.y;
+          count++;
+        }
+      }
+      if (count > 0) { cx /= count; cy /= count; }
+    }
+    // Offset nodes to center, scale down to fit background circle
+    const maxDist = bgW;
+    const ascScale = 0.75;
+    for (const node of nodes.values()) {
+      if (node.ascendancy === activeAscendancy) {
+        node.x = (node.x - cx) * ascScale;
+        node.y = (node.y - cy) * ascScale;
+      }
+    }
+    // Remove outlier ascendancy nodes (data artifacts in other clusters)
+    for (const [id, node] of nodes) {
+      if (node.ascendancy === activeAscendancy) {
+        const dist = Math.sqrt(node.x * node.x + node.y * node.y);
+        if (dist > maxDist) {
+          nodes.delete(id);
+        }
+      }
+    }
   }
 
   return { nodes, connections, bounds: { minX, minY, maxX, maxY } };

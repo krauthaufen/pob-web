@@ -66,6 +66,14 @@ export async function loadTreeAtlases(): Promise<Record<string, SpriteAtlas>> {
     "jewel-sockets_152_156_BC7",
     // Mastery overlays
     "mastery-active-effect_776_768_BC7",
+    // Ascendancy node frames
+    "group-background_160_164_BC7",
+    "group-background_208_208_BC7",
+    // Tree background (290KB)
+    "background_1024_1024_BC7",
+    // Ascendancy backgrounds (downsampled)
+    "ascendancy-background_1000_1000_BC7",
+    "ascendancy-background_250_250_BC7",
   ];
 
   const results = await Promise.all(names.map(loadAtlas));
@@ -108,6 +116,27 @@ export function getFrameTexture(
     default:
       return null;
   }
+}
+
+/** Get ascendancy node frame texture using per-node overlay names */
+export function getAscFrameTexture(
+  atlases: Record<string, SpriteAtlas>,
+  overlay: { alloc: string; path: string; unalloc: string },
+  allocated: boolean,
+): Texture | null {
+  const name = allocated ? overlay.alloc : overlay.unalloc;
+  // Small frames are in 160 atlas, large in 208
+  const smallAtlas = atlases["group-background_160_164_BC7"];
+  if (smallAtlas) {
+    const tex = getSpriteTexture(smallAtlas, name);
+    if (tex) return tex;
+  }
+  const largeAtlas = atlases["group-background_208_208_BC7"];
+  if (largeAtlas) {
+    const tex = getSpriteTexture(largeAtlas, name);
+    if (tex) return tex;
+  }
+  return null;
 }
 
 /** Get jewel socket texture by jewel name from the jewel-sockets atlas.
