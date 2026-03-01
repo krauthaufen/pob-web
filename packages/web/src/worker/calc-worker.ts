@@ -741,10 +741,18 @@ function pobWebGetCalcDisplay(jsonArg)
               if type(colData) == "table" and colData.format then
                 for decimals, key in colData.format:gmatch("{(%d+):output:([^}]+)}") do
                   local val = output[key]
-                  if val and type(val) == "number" and val ~= 0 then
-                    row.values[#row.values + 1] = {
-                      key = key, value = val, decimals = tonumber(decimals)
-                    }
+                  if val and type(val) == "number" then
+                    -- Filter out baseline/default values
+                    local isDefault = false
+                    if val == 0 then isDefault = true
+                    elseif key:match("Effect$") and math.abs(val - 100) < 0.01 then isDefault = true
+                    elseif (key:match("Mult$") or key:match("More$")) and math.abs(val - 1) < 0.01 then isDefault = true
+                    end
+                    if not isDefault then
+                      row.values[#row.values + 1] = {
+                        key = key, value = val, decimals = tonumber(decimals)
+                      }
+                    end
                   end
                 end
               end
@@ -769,19 +777,139 @@ function pobWebGetCalcDisplay(jsonArg)
   return dkjson.encode({ sections = sections })
 end
 
+-- Get weapon set node data (nodes with allocMode 1 or 2)
+function pobWebGetWeaponSetNodes(jsonArg)
+  local result = {}
+  if build and build.spec and build.spec.allocNodes then
+    for hash, node in pairs(build.spec.allocNodes) do
+      if type(hash) == "number" and node.allocMode and node.allocMode ~= 0 then
+        result[tostring(hash)] = node.allocMode
+      end
+    end
+  end
+  return dkjson.encode(result)
+end
+
+-- Get equipped items data from PoB's ItemsTab
+function pobWebGetItemsData(jsonArg)
+  if not build or not build.itemsTab then
+    return dkjson.encode({ items = {} })
+  end
+
+  local result = {}
+  local slots = build.itemsTab.slots
+  if not slots then
+    return dkjson.encode({ items = {} })
+  end
+
+  for slotName, slot in pairs(slots) do
+    if slot.selItemId and slot.selItemId > 0 then
+      local item = build.itemsTab.items[slot.selItemId]
+      if item then
+        local itemData = {
+          slot = slotName,
+          name = item.title or item.name or "",
+          baseName = item.baseName or item.base and item.base.name or "",
+          rarity = item.rarity or "Normal",
+          quality = item.quality or 0,
+          levelReq = item.levelReq or 0,
+          implicitMods = {},
+          explicitMods = {},
+          craftedMods = {},
+          enchantMods = {},
+          runeMods = {},
+        }
+
+        -- Collect mod lines
+        if item.implicitModLines then
+          for _, mod in ipairs(item.implicitModLines) do
+            if mod.line and mod.line ~= "" then
+              local clean = mod.line:gsub("%^%d",""):gsub("%^x%x%x%x%x%x%x","")
+              itemData.implicitMods[#itemData.implicitMods + 1] = clean
+            end
+          end
+        end
+        if item.explicitModLines then
+          for _, mod in ipairs(item.explicitModLines) do
+            if mod.line and mod.line ~= "" then
+              local clean = mod.line:gsub("%^%d",""):gsub("%^x%x%x%x%x%x%x","")
+              local isCrafted = mod.crafted or false
+              if isCrafted then
+                itemData.craftedMods[#itemData.craftedMods + 1] = clean
+              else
+                itemData.explicitMods[#itemData.explicitMods + 1] = clean
+              end
+            end
+          end
+        end
+        if item.enchantModLines then
+          for _, mod in ipairs(item.enchantModLines) do
+            if mod.line and mod.line ~= "" then
+              local clean = mod.line:gsub("%^%d",""):gsub("%^x%x%x%x%x%x%x","")
+              itemData.enchantMods[#itemData.enchantMods + 1] = clean
+            end
+          end
+        end
+        if item.runeModLines then
+          for _, mod in ipairs(item.runeModLines) do
+            if mod.line and mod.line ~= "" then
+              local clean = mod.line:gsub("%^%d",""):gsub("%^x%x%x%x%x%x%x","")
+              itemData.runeMods[#itemData.runeMods + 1] = clean
+            end
+          end
+        end
+
+        result[#result + 1] = itemData
+      end
+    end
+  end
+
+  return dkjson.encode({ items = result })
+end
+
 -- Get jewel socket data from PoB's PassiveSpec and ItemsTab
 function pobWebGetJewelData(jsonArg)
   local result = {}
-  if build and build.spec and build.spec.jewels and build.itemsTab then
-    for nodeId, itemId in pairs(build.spec.jewels) do
-      if itemId and type(itemId) == "number" and itemId > 0 then
-        local item = build.itemsTab.items[itemId]
-        if item then
-          result[tostring(nodeId)] = {
-            name = item.title or item.name or "Unknown Jewel",
-            rarity = item.rarity or "Normal",
-          }
+  if not (build and build.spec and build.spec.jewels and build.itemsTab) then
+    return dkjson.encode(result)
+  end
+  for nodeId, itemId in pairs(build.spec.jewels) do
+    if itemId and type(itemId) == "number" and itemId > 0 then
+      local item = build.itemsTab.items[itemId]
+      if item then
+        local implicitMods = {}
+        local explicitMods = {}
+        local enchantMods = {}
+        local runeMods = {}
+        if item.implicitModLines then
+          for _, ml in ipairs(item.implicitModLines) do
+            if ml.line then implicitMods[#implicitMods + 1] = ml.line:gsub("%^%d",""):gsub("%^x%x%x%x%x%x%x","") end
+          end
         end
+        if item.explicitModLines then
+          for _, ml in ipairs(item.explicitModLines) do
+            if ml.line then explicitMods[#explicitMods + 1] = ml.line:gsub("%^%d",""):gsub("%^x%x%x%x%x%x%x","") end
+          end
+        end
+        if item.enchantModLines then
+          for _, ml in ipairs(item.enchantModLines) do
+            if ml.line then enchantMods[#enchantMods + 1] = ml.line:gsub("%^%d",""):gsub("%^x%x%x%x%x%x%x","") end
+          end
+        end
+        if item.runeModLines then
+          for _, ml in ipairs(item.runeModLines) do
+            if ml.line then runeMods[#runeMods + 1] = ml.line:gsub("%^%d",""):gsub("%^x%x%x%x%x%x%x","") end
+          end
+        end
+        result[tostring(nodeId)] = {
+          name = item.title or item.name or "Unknown Jewel",
+          baseName = item.baseName or "",
+          rarity = item.rarity or "Normal",
+          implicitMods = implicitMods,
+          explicitMods = explicitMods,
+          enchantMods = enchantMods,
+          runeMods = runeMods,
+        }
       end
     end
   end
@@ -950,6 +1078,36 @@ self.onmessage = async (e: MessageEvent<CalcRequest & { _id?: string }>) => {
         respond(_id, { type: "calcDisplay", data: parsed.sections || [] });
       } catch (e) {
         respond(_id, { type: "calcDisplay", data: [], error: String(e) });
+      }
+      break;
+    }
+
+    case "getItems": {
+      if (!initialized) {
+        respond(_id, { type: "items", data: { items: [] }, error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebGetItemsData", "{}");
+        const data = JSON.parse(result);
+        respond(_id, { type: "items", data });
+      } catch (e) {
+        respond(_id, { type: "items", data: { items: [] }, error: String(e) });
+      }
+      break;
+    }
+
+    case "getWeaponSetNodes": {
+      if (!initialized) {
+        respond(_id, { type: "weaponSetNodes", data: {}, error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebGetWeaponSetNodes", "{}");
+        const data = JSON.parse(result);
+        respond(_id, { type: "weaponSetNodes", data });
+      } catch (e) {
+        respond(_id, { type: "weaponSetNodes", data: {}, error: String(e) });
       }
       break;
     }

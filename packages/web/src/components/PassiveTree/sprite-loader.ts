@@ -110,6 +110,25 @@ export function getFrameTexture(
   }
 }
 
+/** Get jewel socket texture by jewel name from the jewel-sockets atlas.
+ *  Tries exact item name first, then baseName (e.g. "Ruby", "Diamond"). */
+export function getJewelTexture(
+  atlases: Record<string, SpriteAtlas>,
+  jewelName: string,
+  baseName?: string,
+): Texture | null {
+  const atlas = atlases["jewel-sockets_152_156_BC7"];
+  if (!atlas) return null;
+  // Try exact item name first (works for unique jewels like "Controlled Metamorphosis")
+  const tex = getSpriteTexture(atlas, jewelName);
+  if (tex) return tex;
+  // Fall back to base type name (e.g. "Ruby", "Diamond", "Time-Lost Sapphire")
+  if (baseName) {
+    return getSpriteTexture(atlas, baseName);
+  }
+  return null;
+}
+
 /** Get skill icon texture for a node, trying 128x128 first then 64x64 */
 export function getIconTexture(
   atlases: Record<string, SpriteAtlas>,

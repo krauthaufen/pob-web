@@ -11,6 +11,7 @@ import {
   loadTreeAtlases,
   getFrameTexture,
   getIconTexture,
+  getJewelTexture,
   type SpriteAtlas,
 } from "./sprite-loader";
 
@@ -18,6 +19,8 @@ const COLORS = {
   bg: 0x0c0c0e,
   connection: 0x3a3a4e,
   connectionAllocated: 0xaf6025,
+  connectionWS1: 0x2a8025,
+  connectionWS2: 0x2560af,
   searchHighlight: 0xffff00,
   // Fallback colors when textures missing
   nodeNormal: 0x5a5a6e,
@@ -71,6 +74,8 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
   const nodeGfxRef = useRef<Map<string, Container>>(new Map());
   const atlasesRef = useRef<Record<string, SpriteAtlas> | null>(null);
   const connGfxRef = useRef<Graphics | null>(null);
+  const searchGfxRef = useRef<Graphics | null>(null);
+  const searchMatchesRef = useRef<Array<{ x: number; y: number; r: number }>>([]);
   const connectionsDataRef = useRef<Array<{ from: string; to: string }>>([]);
   const [appReady, setAppReady] = useState(false);
   const [tooltip, setTooltip] = useState<{
@@ -89,6 +94,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
   const setHoveredNode = useBuildStore((s) => s.setHoveredNode);
   const setCalcDisplay = useBuildStore((s) => s.setCalcDisplay);
   const jewelData = useBuildStore((s) => s.jewelData);
+  const weaponSetNodes = useBuildStore((s) => s.weaponSetNodes);
 
   // Initialize PixiJS
   useEffect(() => {
@@ -151,6 +157,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       world.x = mx - (mx - world.x) * (newScale / oldScale);
       world.y = my - (my - world.y) * (newScale / oldScale);
       world.scale.set(newScale);
+      redrawSearchRef.current();
     };
 
     const onPointerDown = (e: PointerEvent) => {
@@ -239,6 +246,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
           world.x = mx - (mx - world.x) * (newScale / oldScale);
           world.y = my - (my - world.y) * (newScale / oldScale);
           world.scale.set(newScale);
+          redrawSearchRef.current();
         }
       }
 
@@ -275,13 +283,17 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
     node: ProcessedNode,
     isAllocated: boolean,
     atlases: Record<string, SpriteAtlas> | null,
+    jewelInfo?: { name: string; baseName: string; rarity: string } | null,
   ): Container => {
     const container = new Container();
     const frameSize = FRAME_SIZE[node.type] ?? 26;
     const iconSize = ICON_SIZE[node.type] ?? 16;
 
-    // 1. Icon (base artwork)
-    if (node.icon) {
+    // 1. Icon (base artwork) — for non-jewel nodes, icon goes behind frame
+    let jewelTex: ReturnType<typeof getJewelTexture> = null;
+    if (node.type === "jewel" && jewelInfo && atlases) {
+      jewelTex = getJewelTexture(atlases, jewelInfo.name, jewelInfo.baseName);
+    } else if (node.icon) {
       const iconTex = atlases ? getIconTexture(atlases, node.icon, isAllocated) : null;
       if (iconTex) {
         const iconSprite = new Sprite(iconTex);
@@ -301,7 +313,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       frameSprite.width = frameSize;
       frameSprite.height = frameSize * (frameTex.height / frameTex.width);
       container.addChild(frameSprite);
-    } else if (node.type !== "mastery" && !frameTex) {
+    } else if (node.type !== "mastery") {
       const gfx = new Graphics();
       const r = frameSize / 2;
       let color: number;
@@ -335,6 +347,15 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       container.addChild(gfx);
     }
 
+    // 3. Jewel icon ON TOP of frame (jewel-sockets sprites overlay the socket frame)
+    if (jewelTex) {
+      const jewelSprite = new Sprite(jewelTex);
+      jewelSprite.anchor.set(0.5);
+      jewelSprite.width = iconSize;
+      jewelSprite.height = iconSize * (jewelTex.height / jewelTex.width);
+      container.addChild(jewelSprite);
+    }
+
     return container;
   }, []);
 
@@ -354,6 +375,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
 
       const atlases = atlasesRef.current;
       const currentAllocated = useBuildStore.getState().allocatedNodes;
+      const wsNodes = useBuildStore.getState().weaponSetNodes;
 
       world.removeChildren();
       nodeGfxRef.current.clear();
@@ -382,12 +404,19 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
         if (from.ascendancy !== to.ascendancy) continue;
 
         const isConnAllocated = currentAllocated.has(from.hash) && currentAllocated.has(to.hash);
+        let connColor = COLORS.connection;
+        if (isConnAllocated) {
+          const fromWs = wsNodes?.[from.hash];
+          const toWs = wsNodes?.[to.hash];
+          const ws = fromWs || toWs;
+          connColor = ws === 1 ? COLORS.connectionWS1 : ws === 2 ? COLORS.connectionWS2 : COLORS.connectionAllocated;
+        }
 
         connGfx.moveTo(from.x, from.y);
         connGfx.lineTo(to.x, to.y);
         connGfx.stroke({
           width: isConnAllocated ? 12 : 6,
-          color: isConnAllocated ? COLORS.connectionAllocated : COLORS.connection,
+          color: connColor,
           alpha: isConnAllocated ? 0.9 : 0.35,
         });
       }
@@ -400,13 +429,16 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
         if (node.ascendancy) continue;
 
         const isAllocated = currentAllocated.has(node.hash);
-        const nodeContainer = createNodeVisual(node, isAllocated, atlases);
+        const curJewelData = useBuildStore.getState().jewelData;
+        const ji = node.type === "jewel" ? curJewelData?.[String(node.hash)] ?? null : null;
+        const nodeContainer = createNodeVisual(node, isAllocated, atlases, ji);
 
         nodeContainer.x = node.x;
         nodeContainer.y = node.y;
         nodeContainer.eventMode = "static";
         nodeContainer.cursor = "pointer";
         (nodeContainer as any).__allocated = isAllocated;
+        (nodeContainer as any).__jewelInfo = ji ? `${ji.name}:${ji.baseName}` : "";
 
         const hitR = (FRAME_SIZE[node.type] ?? 26) / 2;
         nodeContainer.hitArea = {
@@ -512,11 +544,18 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       if (from.ascendancy !== to.ascendancy) continue;
 
       const isConnAllocated = allocatedNodes.has(from.hash) && allocatedNodes.has(to.hash);
+      let connColor = COLORS.connection;
+      if (isConnAllocated) {
+        const fromWs = weaponSetNodes?.[from.hash];
+        const toWs = weaponSetNodes?.[to.hash];
+        const ws = fromWs || toWs;
+        connColor = ws === 1 ? COLORS.connectionWS1 : ws === 2 ? COLORS.connectionWS2 : COLORS.connectionAllocated;
+      }
       connGfx.moveTo(from.x, from.y);
       connGfx.lineTo(to.x, to.y);
       connGfx.stroke({
         width: isConnAllocated ? 12 : 6,
-        color: isConnAllocated ? COLORS.connectionAllocated : COLORS.connection,
+        color: connColor,
         alpha: isConnAllocated ? 0.9 : 0.35,
       });
     }
@@ -526,16 +565,22 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       const node = nodes.get(id);
       if (!node || node.ascendancy) continue;
       const isAllocated = allocatedNodes.has(node.hash);
-      if ((container as any).__allocated === isAllocated) continue;
+      const ji = node.type === "jewel" ? jewelData?.[String(node.hash)] ?? null : null;
+      const prevJi = (container as any).__jewelInfo as string | undefined;
+      const jiKey = ji ? `${ji.name}:${ji.baseName}` : "";
+      const allocChanged = (container as any).__allocated !== isAllocated;
+      const jewelChanged = node.type === "jewel" && prevJi !== jiKey;
+      if (!allocChanged && !jewelChanged) continue;
       (container as any).__allocated = isAllocated;
+      (container as any).__jewelInfo = jiKey;
 
       container.removeChildren();
-      const newVisual = createNodeVisual(node, isAllocated, atlases);
+      const newVisual = createNodeVisual(node, isAllocated, atlases, ji);
       while (newVisual.children.length > 0) {
         container.addChild(newVisual.children[0]!);
       }
     }
-  }, [allocatedNodes, createNodeVisual]);
+  }, [allocatedNodes, createNodeVisual, weaponSetNodes, jewelData]);
 
   // Heatmap overlay
   useEffect(() => {
@@ -563,35 +608,61 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
     }
   }, [heatmapData]);
 
-  // Search highlight
+  // Redraw search highlights at current zoom level
+  const redrawSearchHighlights = useCallback(() => {
+    const gfx = searchGfxRef.current;
+    const world = worldRef.current;
+    if (!gfx || !world) return;
+    gfx.clear();
+    const scale = world.scale.x || 1;
+    const strokeWidth = 2 / scale;
+    for (const m of searchMatchesRef.current) {
+      gfx.circle(m.x, m.y, m.r);
+      gfx.stroke({ color: COLORS.searchHighlight, width: strokeWidth, alpha: 0.8 });
+    }
+  }, []);
+  const redrawSearchRef = useRef(redrawSearchHighlights);
+  redrawSearchRef.current = redrawSearchHighlights;
+
+  // Search highlight — uses a dedicated Graphics layer so stroke width can be zoom-independent
   useEffect(() => {
-    if (!searchQuery) return;
+    const world = worldRef.current;
+    if (!world) return;
+
+    // Ensure search graphics layer exists
+    if (!searchGfxRef.current) {
+      const gfx = new Graphics();
+      gfx.label = "__search_layer";
+      world.addChild(gfx);
+      searchGfxRef.current = gfx;
+    }
+
+    if (!searchQuery) {
+      searchMatchesRef.current = [];
+      searchGfxRef.current.clear();
+      return;
+    }
+
     const query = searchQuery.toLowerCase();
+    const matches: Array<{ x: number; y: number; r: number }> = [];
 
-    for (const [id, container] of nodeGfxRef.current) {
-      const node = nodesRef.current.get(id);
-      if (!node) continue;
-
-      const matches = node.name.toLowerCase().includes(query) ||
+    for (const [, node] of nodesRef.current) {
+      if (node.ascendancy) continue;
+      const hit = node.name.toLowerCase().includes(query) ||
         node.stats.some(s => s.toLowerCase().includes(query));
-
-      if (matches) {
-        const highlight = new Graphics();
-        const r = (FRAME_SIZE[node.type] ?? 26) / 2 + 6;
-        highlight.circle(0, 0, r);
-        highlight.stroke({ color: COLORS.searchHighlight, width: 2, alpha: 0.8 });
-        highlight.label = "__search_highlight";
-        container.addChild(highlight);
+      if (hit) {
+        matches.push({ x: node.x, y: node.y, r: (FRAME_SIZE[node.type] ?? 26) / 2 + 6 });
       }
     }
 
+    searchMatchesRef.current = matches;
+    redrawSearchHighlights();
+
     return () => {
-      for (const container of nodeGfxRef.current.values()) {
-        const toRemove = container.children.filter(c => c.label === "__search_highlight");
-        toRemove.forEach(c => container.removeChild(c));
-      }
+      searchMatchesRef.current = [];
+      if (searchGfxRef.current) searchGfxRef.current.clear();
     };
-  }, [searchQuery]);
+  }, [searchQuery, redrawSearchHighlights]);
 
   const [allocating, setAllocating] = useState(false);
 

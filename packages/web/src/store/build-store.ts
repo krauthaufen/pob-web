@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { PobBuild } from "../worker/build-decoder";
-import type { SkillsData, CalcSection, JewelInfo } from "../worker/calc-api";
+import type { SkillsData, CalcSection, JewelInfo, EquippedItem } from "../worker/calc-api";
 
 export interface CalcStats {
   // Offence
@@ -79,6 +79,11 @@ interface BuildState {
   defenceStats: DefenceStats | null;
   calcDisplay: CalcSection[] | null;
   jewelData: Record<string, JewelInfo> | null;
+  weaponSetNodes: Record<number, number> | null;
+  equippedItems: EquippedItem[] | null;
+
+  // Skills
+  selectedSkillGroup: number;
 
   // Passive tree
   allocatedNodes: Set<number>;
@@ -93,6 +98,9 @@ interface BuildState {
   setDefenceStats: (data: DefenceStats) => void;
   setCalcDisplay: (data: CalcSection[]) => void;
   setJewelData: (data: Record<string, JewelInfo>) => void;
+  setWeaponSetNodes: (data: Record<number, number>) => void;
+  setEquippedItems: (data: EquippedItem[]) => void;
+  setSelectedSkillGroup: (group: number) => void;
   toggleNode: (nodeId: number) => void;
   setAllocatedNodes: (nodes: number[]) => void;
   setHoveredNode: (nodeId: number | null) => void;
@@ -117,6 +125,9 @@ export const useBuildStore = create<BuildState>((set) => ({
   defenceStats: null,
   calcDisplay: null,
   jewelData: null,
+  weaponSetNodes: null,
+  equippedItems: null,
+  selectedSkillGroup: 1,
   allocatedNodes: new Set(),
   hoveredNode: null,
 
@@ -134,11 +145,14 @@ export const useBuildStore = create<BuildState>((set) => ({
 
   setStats: (stats) => set({ stats, calcStatus: "ready" }),
 
-  setSkillsData: (skillsData) => set({ skillsData }),
+  setSkillsData: (skillsData) => set({ skillsData, selectedSkillGroup: skillsData.mainSocketGroup }),
 
   setDefenceStats: (defenceStats) => set({ defenceStats }),
   setCalcDisplay: (calcDisplay) => set({ calcDisplay }),
   setJewelData: (jewelData) => set({ jewelData }),
+  setWeaponSetNodes: (weaponSetNodes) => set({ weaponSetNodes }),
+  setEquippedItems: (equippedItems) => set({ equippedItems }),
+  setSelectedSkillGroup: (selectedSkillGroup) => set({ selectedSkillGroup }),
 
   toggleNode: (nodeId) =>
     set((state) => {
@@ -164,6 +178,9 @@ export const useBuildStore = create<BuildState>((set) => ({
       defenceStats: null,
       calcDisplay: null,
       jewelData: null,
+      weaponSetNodes: null,
+      equippedItems: null,
+      selectedSkillGroup: 1,
       allocatedNodes: new Set(),
       hoveredNode: null,
     }),

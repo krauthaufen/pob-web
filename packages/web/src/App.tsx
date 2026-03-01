@@ -3,6 +3,7 @@ import { ImportPanel, EXAMPLE_CODE } from "@/components/ImportExport/ImportPanel
 import { StatsPanel } from "@/components/StatsPanel/StatsPanel";
 import { SkillsPanel } from "@/components/StatsPanel/SkillsPanel";
 import { DefencePanel } from "@/components/StatsPanel/DefencePanel";
+import { InventoryPanel } from "@/components/StatsPanel/InventoryPanel";
 import { PassiveTree } from "@/components/PassiveTree/PassiveTree";
 import { useBuildStore } from "@/store/build-store";
 import type { DefenceStats } from "@/store/build-store";
@@ -14,7 +15,7 @@ export function App() {
   const [treeData, setTreeData] = useState<TreeData | null>(null);
   const [treeLoading, setTreeLoading] = useState(true);
   const [treeSearch, setTreeSearch] = useState("");
-  const [sidePanel, setSidePanel] = useState<"import" | "stats" | "skills" | "defence">("import");
+  const [sidePanel, setSidePanel] = useState<"import" | "stats" | "skills" | "defence" | "items">("import");
   const [menuOpen, setMenuOpen] = useState(false);
   const build = useBuildStore((s) => s.build);
   const calcStatus = useBuildStore((s) => s.calcStatus);
@@ -24,6 +25,8 @@ export function App() {
   const setDefenceStats = useBuildStore((s) => s.setDefenceStats);
   const setCalcDisplay = useBuildStore((s) => s.setCalcDisplay);
   const setJewelData = useBuildStore((s) => s.setJewelData);
+  const setWeaponSetNodes = useBuildStore((s) => s.setWeaponSetNodes);
+  const setEquippedItems = useBuildStore((s) => s.setEquippedItems);
   const [engineStatus, setEngineStatus] = useState<string>("idle");
   const [engineLogs, setEngineLogs] = useState<string[]>([]);
   const calcClientRef = useRef<CalcClient | null>(null);
@@ -58,13 +61,15 @@ export function App() {
     }
     setCalcStatus("calculating");
 
-    // Fetch stats, skills, defence, calcDisplay, and jewels independently
-    const [statsResult, skillsResult, defenceResult, displayResult, jewelsResult] = await Promise.allSettled([
+    // Fetch stats, skills, defence, calcDisplay, jewels, weapon set nodes, and items independently
+    const [statsResult, skillsResult, defenceResult, displayResult, jewelsResult, wsResult, itemsResult] = await Promise.allSettled([
       client.getStats(),
       client.getSkills(),
       client.getDefence(),
       client.getCalcDisplay(),
       client.getJewels(),
+      client.getWeaponSetNodes(),
+      client.getItems(),
     ]);
 
     const stats = statsResult.status === "fulfilled" ? statsResult.value : {};
@@ -80,6 +85,16 @@ export function App() {
 
     if (jewelsResult.status === "fulfilled") setJewelData(jewelsResult.value);
     else console.error("[PoB] getJewels failed:", jewelsResult.reason);
+
+    if (wsResult.status === "fulfilled") {
+      // Convert string keys to numbers
+      const wsData: Record<number, number> = {};
+      for (const [k, v] of Object.entries(wsResult.value)) wsData[Number(k)] = v as number;
+      setWeaponSetNodes(wsData);
+    } else console.error("[PoB] getWeaponSetNodes failed:", wsResult.reason);
+
+    if (itemsResult.status === "fulfilled") setEquippedItems(itemsResult.value);
+    else console.error("[PoB] getItems failed:", itemsResult.reason);
 
     setStats({
       totalDps: stats.TotalDPS || stats.CombinedDPS || 0,
@@ -142,7 +157,7 @@ export function App() {
       movementSpeed: defence.MovementSpeedMod || 0,
     };
     setDefenceStats(d);
-  }, [setCalcStatus, setStats, setSkillsData, setDefenceStats, setCalcDisplay, setJewelData]);
+  }, [setCalcStatus, setStats, setSkillsData, setDefenceStats, setCalcDisplay, setJewelData, setWeaponSetNodes, setEquippedItems]);
 
   // Auto-init engine on mount
   useEffect(() => {
@@ -311,7 +326,7 @@ export function App() {
               </button>
             </div>
             <div className="flex border-b border-poe-border">
-              {(["import", "stats", "skills", "defence"] as const).map((tab) => (
+              {(["import", "stats", "skills", "defence", "items"] as const).map((tab) => (
                 <button
                   key={tab}
                   className={`flex-1 px-2 py-2.5 text-xs font-medium transition ${
@@ -323,7 +338,8 @@ export function App() {
                 >
                   {tab === "import" ? "Import" :
                    tab === "stats" ? "Stats" :
-                   tab === "skills" ? "Skills" : "Defence"}
+                   tab === "skills" ? "Skills" :
+                   tab === "defence" ? "Defence" : "Items"}
                 </button>
               ))}
             </div>
@@ -331,7 +347,8 @@ export function App() {
               {sidePanel === "import" ? <ImportPanel /> :
                sidePanel === "stats" ? <StatsPanel /> :
                sidePanel === "skills" ? <SkillsPanel calcClient={calcClientRef.current} /> :
-               <DefencePanel />}
+               sidePanel === "defence" ? <DefencePanel /> :
+               <InventoryPanel />}
             </div>
           </aside>
         </div>

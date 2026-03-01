@@ -10,6 +10,8 @@ export type CalcRequest =
   | { type: "getDefence" }
   | { type: "getCalcDisplay" }
   | { type: "getJewels" }
+  | { type: "getWeaponSetNodes" }
+  | { type: "getItems" }
   | { type: "switchMainSkill"; index: number }
   | { type: "allocNode"; nodeId: number }
   | { type: "deallocNode"; nodeId: number }
@@ -88,7 +90,30 @@ export interface CalcSubSection { label: string; stats: CalcStatRow[]; }
 export interface CalcSection { id: string; group: number; subsections: CalcSubSection[]; }
 
 /** Jewel socket data */
-export interface JewelInfo { name: string; rarity: string; }
+export interface JewelInfo {
+  name: string;
+  baseName: string;
+  rarity: string;
+  implicitMods: string[];
+  explicitMods: string[];
+  enchantMods: string[];
+  runeMods: string[];
+}
+
+/** Equipped item data from PoB's ItemsTab */
+export interface EquippedItem {
+  slot: string;
+  name: string;
+  baseName: string;
+  rarity: string;
+  quality: number;
+  levelReq: number;
+  implicitMods: string[];
+  explicitMods: string[];
+  craftedMods: string[];
+  enchantMods: string[];
+  runeMods: string[];
+}
 
 /** Response from allocNode / deallocNode */
 export interface AllocResult {
@@ -108,6 +133,8 @@ export type CalcResponse =
   | { type: "deallocNode"; data: AllocResult; error?: string }
   | { type: "calcDisplay"; data: CalcSection[]; error?: string }
   | { type: "jewels"; data: Record<string, JewelInfo>; error?: string }
+  | { type: "weaponSetNodes"; data: Record<string, number>; error?: string }
+  | { type: "items"; data: { items: EquippedItem[] }; error?: string }
   | { type: "nodePower"; data: Record<number, number>; error?: string }
   | { type: "nodeImpact"; data: NodeImpact; error?: string }
   | { type: "error"; message: string }

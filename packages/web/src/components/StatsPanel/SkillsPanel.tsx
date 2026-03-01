@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useBuildStore } from "@/store/build-store";
-import { CalcClient } from "@/worker/calc-client";
+import type { CalcClient } from "@/worker/calc-client";
 import type { MainSkillStats, SkillDpsEntry, CalcSection, CalcStatRow } from "@/worker/calc-api";
 
 function formatNum(value: number): string {
@@ -57,27 +57,23 @@ interface SkillsPanelProps {
 }
 
 export function SkillsPanel({ calcClient }: SkillsPanelProps) {
-  const { skillsData, build, calcStatus, calcDisplay, setCalcDisplay } = useBuildStore();
-  const [selectedGroup, setSelectedGroup] = useState<number>(1);
+  const { skillsData, build, calcStatus, calcDisplay, setCalcDisplay, selectedSkillGroup, setSelectedSkillGroup } = useBuildStore();
   const [mainStats, setMainStats] = useState<MainSkillStats | null>(null);
   const [skillDps, setSkillDps] = useState<SkillDpsEntry[]>([]);
   const [fullDps, setFullDps] = useState(0);
   const [switching, setSwitching] = useState(false);
-  const initRef = useRef(false);
 
   // Initialize from skillsData when it arrives
   useEffect(() => {
     if (!skillsData) return;
-    setSelectedGroup(skillsData.mainSocketGroup);
     setMainStats(skillsData.mainSkillStats ?? null);
     setSkillDps(skillsData.skills);
     setFullDps(skillsData.fullDps);
-    initRef.current = true;
   }, [skillsData]);
 
   const switchSkill = useCallback(async (index: number) => {
     if (!calcClient || switching) return;
-    setSelectedGroup(index);
+    setSelectedSkillGroup(index);
     setSwitching(true);
     try {
       const result = await calcClient.switchMainSkill(index);
@@ -93,7 +89,7 @@ export function SkillsPanel({ calcClient }: SkillsPanelProps) {
     } finally {
       setSwitching(false);
     }
-  }, [calcClient, switching, setCalcDisplay]);
+  }, [calcClient, switching, setCalcDisplay, setSelectedSkillGroup]);
 
   if (!build) {
     return (
@@ -120,7 +116,7 @@ export function SkillsPanel({ calcClient }: SkillsPanelProps) {
   }
 
   const groups = skillsData.groups.filter(g => g.enabled);
-  const selected = groups.find(g => g.index === selectedGroup);
+  const selected = groups.find(g => g.index === selectedSkillGroup);
 
   // Offence sections from CalcDisplay (group 1)
   const offenceSections = calcDisplay?.filter(s => s.group === 1) ?? [];
@@ -134,7 +130,7 @@ export function SkillsPanel({ calcClient }: SkillsPanelProps) {
         </label>
         <select
           className="w-full rounded border border-poe-border bg-poe-bg px-2 py-1.5 text-xs text-poe-text focus:border-poe-accent focus:outline-none"
-          value={selectedGroup}
+          value={selectedSkillGroup}
           onChange={(e) => switchSkill(Number(e.target.value))}
           disabled={switching}
         >

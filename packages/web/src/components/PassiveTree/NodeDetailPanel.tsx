@@ -98,6 +98,9 @@ export function NodeDetailPanel({
                 "text-gray-300"
               }`}>
                 {jewelInfo.name}
+                {jewelInfo.baseName && jewelInfo.baseName !== jewelInfo.name && (
+                  <span className="ml-1 text-gray-500">{jewelInfo.baseName}</span>
+                )}
               </p>
             )}
           </div>
@@ -111,6 +114,31 @@ export function NodeDetailPanel({
             </svg>
           </button>
         </div>
+
+        {/* Jewel mods */}
+        {jewelInfo && (jewelInfo.implicitMods.length > 0 || jewelInfo.explicitMods.length > 0 || jewelInfo.enchantMods.length > 0 || jewelInfo.runeMods.length > 0) && (
+          <div className="mb-3 rounded bg-poe-bg/50 px-3 py-2">
+            {jewelInfo.enchantMods.map((mod, i) => (
+              <p key={`e${i}`} className="text-xs leading-relaxed text-cyan-300">{mod}</p>
+            ))}
+            {jewelInfo.implicitMods.map((mod, i) => (
+              <p key={`i${i}`} className="text-xs leading-relaxed text-blue-300">{mod}</p>
+            ))}
+            {(jewelInfo.implicitMods.length > 0 && jewelInfo.explicitMods.length > 0) && (
+              <div className="my-1 border-b border-gray-700" />
+            )}
+            {jewelInfo.explicitMods.map((mod, i) => (
+              <p key={`x${i}`} className="text-xs leading-relaxed text-gray-200">{mod}</p>
+            ))}
+            {jewelInfo.runeMods.length > 0 && (
+              <div className="mt-1 border-t border-gray-700 pt-1">
+                {jewelInfo.runeMods.map((mod, i) => (
+                  <p key={`r${i}`} className="text-xs leading-relaxed text-green-300">{mod}</p>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Stats */}
         {node.stats.length > 0 && (
