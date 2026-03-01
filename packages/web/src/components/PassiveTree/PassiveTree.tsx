@@ -738,18 +738,22 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
     const jrGfx = jewelRadiusGfxRef.current;
     if (jrGfx) {
       jrGfx.clear();
-      // Lightsaber glow: wide soft bloom → medium glow → bright core
+      // Soft diffuse glow
       const glowRing = (cx: number, cy: number, r: number) => {
         jrGfx.circle(cx, cy, r);
-        jrGfx.stroke({ width: 30, color: 0x2266cc, alpha: 0.04 });
+        jrGfx.stroke({ width: 60, color: 0x1144aa, alpha: 0.02 });
         jrGfx.circle(cx, cy, r);
-        jrGfx.stroke({ width: 18, color: 0x3388dd, alpha: 0.08 });
+        jrGfx.stroke({ width: 40, color: 0x2266cc, alpha: 0.04 });
         jrGfx.circle(cx, cy, r);
-        jrGfx.stroke({ width: 10, color: 0x55aaff, alpha: 0.2 });
+        jrGfx.stroke({ width: 24, color: 0x3388dd, alpha: 0.07 });
         jrGfx.circle(cx, cy, r);
-        jrGfx.stroke({ width: 4, color: 0xaaddff, alpha: 0.6 });
+        jrGfx.stroke({ width: 14, color: 0x55aaff, alpha: 0.12 });
         jrGfx.circle(cx, cy, r);
-        jrGfx.stroke({ width: 1.5, color: 0xeef8ff, alpha: 0.9 });
+        jrGfx.stroke({ width: 7, color: 0x88ccff, alpha: 0.25 });
+        jrGfx.circle(cx, cy, r);
+        jrGfx.stroke({ width: 3, color: 0xbbddff, alpha: 0.45 });
+        jrGfx.circle(cx, cy, r);
+        jrGfx.stroke({ width: 1, color: 0xddeeff, alpha: 0.6 });
       };
       for (const [, node] of nodes) {
         if (node.type !== "jewel") continue;
