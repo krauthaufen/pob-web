@@ -57,15 +57,10 @@ export async function loadTreeAtlases(): Promise<Record<string, SpriteAtlas>> {
     "group-background_104_104_BC7",
     "group-background_152_156_BC7",
     "group-background_220_224_BC7",
-    // Skill icons — 128x128 has best coverage (323 icons), 64x64 as fallback
-    "skills_128_128_BC1",
-    "skills-disabled_128_128_BC1",
+    // Skill icons — 64x64 only (2.6MB GPU vs 21MB for 128x128)
     "skills_64_64_BC1",
-    "skills-disabled_64_64_BC1",
     // Jewel sockets
     "jewel-sockets_152_156_BC7",
-    // Mastery overlays
-    "mastery-active-effect_776_768_BC7",
     // Ascendancy node frames
     "group-background_160_164_BC7",
     "group-background_208_208_BC7",
@@ -158,24 +153,17 @@ export function getJewelTexture(
   return null;
 }
 
-/** Get skill icon texture for a node, trying 128x128 first then 64x64 */
+/** Get skill icon texture for a node (single 64x64 atlas for both states) */
 export function getIconTexture(
   atlases: Record<string, SpriteAtlas>,
   iconPath: string,
-  allocated: boolean,
+  _allocated: boolean,
 ): Texture | null {
   if (!iconPath) return null;
 
-  // Try 128x128 first (323 icons), then 64x64 (164 icons)
-  const primaryAtlas = atlases[allocated ? "skills_128_128_BC1" : "skills-disabled_128_128_BC1"];
-  if (primaryAtlas) {
-    const tex = getSpriteTexture(primaryAtlas, iconPath);
-    if (tex) return tex;
-  }
-
-  const fallbackAtlas = atlases[allocated ? "skills_64_64_BC1" : "skills-disabled_64_64_BC1"];
-  if (fallbackAtlas) {
-    const tex = getSpriteTexture(fallbackAtlas, iconPath);
+  const atlas = atlases["skills_64_64_BC1"];
+  if (atlas) {
+    const tex = getSpriteTexture(atlas, iconPath);
     if (tex) return tex;
   }
 

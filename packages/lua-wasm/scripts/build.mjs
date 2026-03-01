@@ -60,7 +60,7 @@ const cmd = [
   "-sALLOW_MEMORY_GROWTH=1",
   "-sFORCE_FILESYSTEM=1",
   "-sENVIRONMENT=web,worker",
-  "-sINITIAL_MEMORY=67108864",
+  "-sINITIAL_MEMORY=33554432",
   "-sSTACK_SIZE=1048576",
   "-sUSE_ZLIB=1",
   "--no-entry",
