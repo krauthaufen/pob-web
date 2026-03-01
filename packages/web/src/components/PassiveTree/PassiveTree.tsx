@@ -743,13 +743,25 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
         const ji = jewelData?.[String(node.hash)];
         if (!ji?.radius || !allocatedNodes.has(node.hash)) continue;
         const { inner, outer } = ji.radius;
-        // Outer circle
-        jrGfx.circle(node.x, node.y, outer);
-        jrGfx.stroke({ width: 2, color: 0x4488cc, alpha: 0.5 });
-        // Inner circle (donut ring)
-        if (inner > 0) {
-          jrGfx.circle(node.x, node.y, inner);
+
+        if (ji.radiusCenters && ji.radiusCenters.length > 0) {
+          // From Nothing: draw radius around each keystone center
+          for (const center of ji.radiusCenters) {
+            jrGfx.circle(center.x, center.y, outer);
+            jrGfx.stroke({ width: 2, color: 0x4488cc, alpha: 0.5 });
+            if (inner > 0) {
+              jrGfx.circle(center.x, center.y, inner);
+              jrGfx.stroke({ width: 2, color: 0x4488cc, alpha: 0.5 });
+            }
+          }
+        } else {
+          // Normal jewel: draw radius around the socket
+          jrGfx.circle(node.x, node.y, outer);
           jrGfx.stroke({ width: 2, color: 0x4488cc, alpha: 0.5 });
+          if (inner > 0) {
+            jrGfx.circle(node.x, node.y, inner);
+            jrGfx.stroke({ width: 2, color: 0x4488cc, alpha: 0.5 });
+          }
         }
       }
     }

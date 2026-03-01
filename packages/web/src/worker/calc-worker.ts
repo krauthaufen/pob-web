@@ -1210,17 +1210,32 @@ function pobWebGetJewelData(jsonArg)
         end
         -- Get jewel radius info
         local radiusData = nil
+        local mult = 1.2
+        if data and data.gameConstants and data.gameConstants["PassiveTreeJewelDistanceMultiplier"] then
+          mult = data.gameConstants["PassiveTreeJewelDistanceMultiplier"]
+        end
         if item.jewelRadiusIndex and data and data.jewelRadius then
           local rd = data.jewelRadius[item.jewelRadiusIndex]
           if rd then
-            local mult = 1.2
-            if data.gameConstants and data.gameConstants["PassiveTreeJewelDistanceMultiplier"] then
-              mult = data.gameConstants["PassiveTreeJewelDistanceMultiplier"]
-            end
             radiusData = {
               inner = rd.inner * mult,
               outer = rd.outer * mult,
             }
+          end
+        end
+
+        -- From Nothing: radius centered on keystones, not the socket
+        local radiusCenters = nil
+        if item.jewelData and item.jewelData.fromNothingKeystones and build.spec and build.spec.tree then
+          local centers = {}
+          for keyName, _ in pairs(item.jewelData.fromNothingKeystones) do
+            local keyNode = build.spec.tree.keystoneMap and build.spec.tree.keystoneMap[keyName]
+            if keyNode and keyNode.x and keyNode.y then
+              centers[#centers + 1] = { x = keyNode.x, y = keyNode.y, name = keyName }
+            end
+          end
+          if #centers > 0 then
+            radiusCenters = centers
           end
         end
 
@@ -1233,6 +1248,7 @@ function pobWebGetJewelData(jsonArg)
           enchantMods = enchantMods,
           runeMods = runeMods,
           radius = radiusData,
+          radiusCenters = radiusCenters,
         }
       end
     end
