@@ -57,7 +57,8 @@ export async function loadTreeAtlases(): Promise<Record<string, SpriteAtlas>> {
     "group-background_104_104_BC7",
     "group-background_152_156_BC7",
     "group-background_220_224_BC7",
-    // Skill icons — 64x64 only (2.6MB GPU vs 21MB for 128x128)
+    // Skill icons — 128x128 has passive tree icons (329), 64x64 is active skill icons
+    "skills_128_128_BC1",
     "skills_64_64_BC1",
     // Jewel sockets
     "jewel-sockets_152_156_BC7",
@@ -153,7 +154,7 @@ export function getJewelTexture(
   return null;
 }
 
-/** Get skill icon texture for a node (single 64x64 atlas for both states) */
+/** Get skill icon texture for a node (single atlas for both states, dimmed via node alpha) */
 export function getIconTexture(
   atlases: Record<string, SpriteAtlas>,
   iconPath: string,
@@ -161,9 +162,15 @@ export function getIconTexture(
 ): Texture | null {
   if (!iconPath) return null;
 
-  const atlas = atlases["skills_64_64_BC1"];
-  if (atlas) {
-    const tex = getSpriteTexture(atlas, iconPath);
+  // 128x128 has passive tree icons, 64x64 has active skill icons
+  const primary = atlases["skills_128_128_BC1"];
+  if (primary) {
+    const tex = getSpriteTexture(primary, iconPath);
+    if (tex) return tex;
+  }
+  const fallback = atlases["skills_64_64_BC1"];
+  if (fallback) {
+    const tex = getSpriteTexture(fallback, iconPath);
     if (tex) return tex;
   }
 
