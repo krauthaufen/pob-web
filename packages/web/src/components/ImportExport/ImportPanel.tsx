@@ -11,7 +11,7 @@ export const EXAMPLE_CODE = "https://poe.ninja/poe2/profile/krauthaufen-0194/cha
 
 export function ImportPanel() {
   const [input, setInput] = useState(() => {
-    try { return sessionStorage.getItem("pob-import-code") || EXAMPLE_CODE; } catch { return EXAMPLE_CODE; }
+    try { return localStorage.getItem("pob-import-code") || EXAMPLE_CODE; } catch { return EXAMPLE_CODE; }
   });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);

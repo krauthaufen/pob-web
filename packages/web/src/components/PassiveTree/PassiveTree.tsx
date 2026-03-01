@@ -22,14 +22,14 @@ import {
 const VIEWPORT_KEY = "pob-viewport";
 function saveViewport(world: { x: number; y: number; scale: { x: number } }) {
   try {
-    sessionStorage.setItem(VIEWPORT_KEY, JSON.stringify({
+    localStorage.setItem(VIEWPORT_KEY, JSON.stringify({
       x: world.x, y: world.y, scale: world.scale.x,
     }));
   } catch {}
 }
 function loadViewport(): { x: number; y: number; scale: number } | null {
   try {
-    const s = sessionStorage.getItem(VIEWPORT_KEY);
+    const s = localStorage.getItem(VIEWPORT_KEY);
     return s ? JSON.parse(s) : null;
   } catch { return null; }
 }
@@ -181,6 +181,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       world.y = my - (my - world.y) * (newScale / oldScale);
       world.scale.set(newScale);
       redrawSearchRef.current();
+      saveViewport(world);
     };
 
     const onPointerDown = (e: PointerEvent) => {
@@ -210,6 +211,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
 
     const onPointerUp = (e: PointerEvent) => {
       if (e.pointerType === "touch") return;
+      if (isDragging && worldRef.current) saveViewport(worldRef.current);
       isDragging = false;
       el.style.cursor = "";
     };
@@ -277,6 +279,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
     };
 
     const onTouchEnd = (e: TouchEvent) => {
+      if (worldRef.current) saveViewport(worldRef.current);
       lastTouches = Array.from(e.touches);
     };
 

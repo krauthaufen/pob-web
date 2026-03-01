@@ -21,13 +21,13 @@ type UiState = {
 
 function saveUiState(patch: Partial<UiState>) {
   try {
-    const prev = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "{}");
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ ...prev, ...patch }));
+    const prev = JSON.parse(localStorage.getItem(SESSION_KEY) || "{}");
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...prev, ...patch }));
   } catch {}
 }
 
 function loadUiState(): UiState {
-  try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || "{}"); } catch { return {}; }
+  try { return JSON.parse(localStorage.getItem(SESSION_KEY) || "{}"); } catch { return {}; }
 }
 
 export function App() {
@@ -217,13 +217,13 @@ export function App() {
       });
   }, []);
 
-  // Auto-import: restore last build from sessionStorage, or fall back to example
+  // Auto-import: restore last build from localStorage, or fall back to example
   useEffect(() => {
     if (build) return; // already have a build
     (async () => {
       try {
         let code: string;
-        try { code = sessionStorage.getItem("pob-import-code") || EXAMPLE_CODE; } catch { code = EXAMPLE_CODE; }
+        try { code = localStorage.getItem("pob-import-code") || EXAMPLE_CODE; } catch { code = EXAMPLE_CODE; }
         const ninjaUrl = parsePoeNinjaUrl(code);
         if (ninjaUrl) {
           code = await fetchPoeNinjaBuild(ninjaUrl.account, ninjaUrl.character);
@@ -312,6 +312,21 @@ export function App() {
                calcStatus === "error" ? "Calc Error" : ""}
             </span>
           )}
+          <button
+            className="flex h-7 w-7 items-center justify-center rounded bg-poe-panel/60 text-gray-600 backdrop-blur-sm transition hover:text-gray-300"
+            onClick={() => {
+              try { localStorage.removeItem(SESSION_KEY); localStorage.removeItem("pob-viewport"); } catch {}
+              setTreeSearch("");
+              setSidePanel("import");
+              setMenuOpen(false);
+            }}
+            title="Reset view"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M1 1v4h4M13 13v-4h-4" />
+              <path d="M1.5 5A6 6 0 0112.5 4M12.5 9A6 6 0 011.5 10" />
+            </svg>
+          </button>
         </div>
       </header>
 

@@ -146,7 +146,7 @@ export const useBuildStore = create<BuildState>((set) => ({
 
   setImportCode: (importCode) => {
     set({ importCode });
-    try { sessionStorage.setItem("pob-import-code", importCode); } catch {}
+    try { localStorage.setItem("pob-import-code", importCode); } catch {}
   },
   setOriginalImportCode: (originalImportCode) => set({ originalImportCode }),
 
