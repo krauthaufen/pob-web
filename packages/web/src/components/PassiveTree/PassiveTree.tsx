@@ -94,6 +94,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
   const atlasesRef = useRef<Record<string, SpriteAtlas> | null>(null);
   const connGfxRef = useRef<Graphics | null>(null);
   const ascConnGfxRef = useRef<Graphics | null>(null);
+  const jewelRadiusGfxRef = useRef<Graphics | null>(null);
   const searchGfxRef = useRef<Graphics | null>(null);
   const searchMatchesRef = useRef<Array<{ x: number; y: number; r: number }>>([]);
   const connectionsDataRef = useRef<Array<{ from: string; to: string }>>([]);
@@ -543,6 +544,11 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       // Ascendancy connections above backgrounds
       world.addChild(ascConnGfx);
 
+      // Jewel radius circles (below nodes)
+      const jewelRadiusGfx = new Graphics();
+      jewelRadiusGfxRef.current = jewelRadiusGfx;
+      world.addChild(jewelRadiusGfx);
+
       // Node layer
       const nodeLayer = new Container();
 
@@ -725,6 +731,26 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       const newVisual = createNodeVisual(node, isAllocated, atlases, ji);
       while (newVisual.children.length > 0) {
         container.addChild(newVisual.children[0]!);
+      }
+    }
+
+    // Draw jewel radius circles
+    const jrGfx = jewelRadiusGfxRef.current;
+    if (jrGfx) {
+      jrGfx.clear();
+      for (const [, node] of nodes) {
+        if (node.type !== "jewel") continue;
+        const ji = jewelData?.[String(node.hash)];
+        if (!ji?.radius || !allocatedNodes.has(node.hash)) continue;
+        const { inner, outer } = ji.radius;
+        // Outer circle
+        jrGfx.circle(node.x, node.y, outer);
+        jrGfx.stroke({ width: 2, color: 0x4488cc, alpha: 0.5 });
+        // Inner circle (donut ring)
+        if (inner > 0) {
+          jrGfx.circle(node.x, node.y, inner);
+          jrGfx.stroke({ width: 2, color: 0x4488cc, alpha: 0.5 });
+        }
       }
     }
   }, [allocatedNodes, createNodeVisual, weaponSetNodes, jewelData]);

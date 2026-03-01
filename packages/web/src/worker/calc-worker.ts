@@ -1208,6 +1208,22 @@ function pobWebGetJewelData(jsonArg)
             if ml.line then runeMods[#runeMods + 1] = ml.line:gsub("%^%d",""):gsub("%^x%x%x%x%x%x%x","") end
           end
         end
+        -- Get jewel radius info
+        local radiusData = nil
+        if item.jewelRadiusIndex and data and data.jewelRadius then
+          local rd = data.jewelRadius[item.jewelRadiusIndex]
+          if rd then
+            local mult = 1.2
+            if data.gameConstants and data.gameConstants["PassiveTreeJewelDistanceMultiplier"] then
+              mult = data.gameConstants["PassiveTreeJewelDistanceMultiplier"]
+            end
+            radiusData = {
+              inner = rd.inner * mult,
+              outer = rd.outer * mult,
+            }
+          end
+        end
+
         result[tostring(nodeId)] = {
           name = item.title or item.name or "Unknown Jewel",
           baseName = item.baseName or "",
@@ -1216,6 +1232,7 @@ function pobWebGetJewelData(jsonArg)
           explicitMods = explicitMods,
           enchantMods = enchantMods,
           runeMods = runeMods,
+          radius = radiusData,
         }
       end
     end

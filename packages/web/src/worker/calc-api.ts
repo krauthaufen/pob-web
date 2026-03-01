@@ -100,6 +100,7 @@ export interface JewelInfo {
   explicitMods: string[];
   enchantMods: string[];
   runeMods: string[];
+  radius?: { inner: number; outer: number };
 }
 
 /** Equipped item data from PoB's ItemsTab */
