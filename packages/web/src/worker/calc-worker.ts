@@ -710,6 +710,7 @@ function pobWebCalcNodeImpact(jsonArg)
   end
 
   local pathCount = 1
+  local pathNodes = {}
   local calcOk, output
 
   local singleNode = args.singleNode
@@ -718,20 +719,28 @@ function pobWebCalcNodeImpact(jsonArg)
     -- UNALLOCATED: include node.path (all nodes from allocated tree to this node)
     local addNodes = {}
     if not singleNode and node.path and #node.path > 0 then
-      for _, n in ipairs(node.path) do addNodes[n] = true end
+      for _, n in ipairs(node.path) do
+        addNodes[n] = true
+        pathNodes[#pathNodes + 1] = n.id or 0
+      end
       pathCount = #node.path
     else
       addNodes[node] = true
+      pathNodes[1] = args.nodeId
     end
     calcOk, output = pcall(calcFunc, { addNodes = addNodes }, true)
   else
     -- ALLOCATED: include node.depends (all nodes that would become orphaned)
     local removeNodes = {}
     if not singleNode and node.depends and #node.depends > 0 then
-      for _, n in ipairs(node.depends) do removeNodes[n] = true end
+      for _, n in ipairs(node.depends) do
+        removeNodes[n] = true
+        pathNodes[#pathNodes + 1] = n.id or 0
+      end
       pathCount = #node.depends
     else
       removeNodes[node] = true
+      pathNodes[1] = args.nodeId
     end
     calcOk, output = pcall(calcFunc, { removeNodes = removeNodes }, true)
   end
@@ -755,7 +764,7 @@ function pobWebCalcNodeImpact(jsonArg)
     end
   end
 
-  return dkjson.encode({ deltas = deltas, pathCount = pathCount })
+  return dkjson.encode({ deltas = deltas, pathCount = pathCount, pathNodes = pathNodes })
 end
 
 -- Get PoB sidebar display stats (mirrors BuildDisplayStats.lua)

@@ -96,6 +96,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
   const ascConnGfxRef = useRef<Graphics | null>(null);
   const jewelRadiusGfxRef = useRef<Graphics | null>(null);
   const searchGfxRef = useRef<Graphics | null>(null);
+  const pathHighlightGfxRef = useRef<Graphics | null>(null);
   const searchMatchesRef = useRef<Array<{ x: number; y: number; r: number }>>([]);
   const connectionsDataRef = useRef<Array<{ from: string; to: string }>>([]);
   const boundsRef = useRef<{ minX: number; minY: number; maxX: number; maxY: number } | null>(null);
@@ -889,6 +890,54 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       if (searchGfxRef.current) searchGfxRef.current.clear();
     };
   }, [searchQuery, redrawSearchHighlights]);
+
+  // Draw path highlight when a node is selected and impact is computed
+  const activeImpact = impactSingleMode ? nodeImpactSingle : nodeImpact;
+  useEffect(() => {
+    const world = worldRef.current;
+    if (!world) return;
+
+    // Ensure graphics layer exists
+    if (!pathHighlightGfxRef.current) {
+      const gfx = new Graphics();
+      gfx.label = "__path_highlight";
+      world.addChild(gfx);
+      pathHighlightGfxRef.current = gfx;
+    }
+
+    const gfx = pathHighlightGfxRef.current;
+    gfx.clear();
+
+    if (!selectedNode || !activeImpact || activeImpact.pathNodes.length === 0) return;
+
+    const pathSet = new Set(activeImpact.pathNodes);
+    const nodes = nodesRef.current;
+    const connections = connectionsDataRef.current;
+    const isAlloc = allocatedNodes.has(selectedNode.hash);
+    // Red for removal, green-blue for addition
+    const highlightColor = isAlloc ? 0xff4444 : 0x44bbff;
+
+    // Highlight connections between path nodes
+    for (const conn of connections) {
+      const from = nodes.get(conn.from);
+      const to = nodes.get(conn.to);
+      if (!from || !to) continue;
+      if (!pathSet.has(from.hash) || !pathSet.has(to.hash)) continue;
+      gfx.moveTo(from.x, from.y);
+      gfx.lineTo(to.x, to.y);
+      gfx.stroke({ width: 16, color: highlightColor, alpha: 0.5 });
+    }
+
+    // Highlight node outlines
+    for (const [, node] of nodes) {
+      if (!pathSet.has(node.hash)) continue;
+      const r = (FRAME_SIZE[node.type] ?? 26) / 2 + 4;
+      gfx.circle(node.x, node.y, r);
+      gfx.stroke({ width: 3, color: highlightColor, alpha: 0.8 });
+    }
+
+    return () => { gfx.clear(); };
+  }, [selectedNode, activeImpact, allocatedNodes]);
 
   const [allocating, setAllocating] = useState(false);
 

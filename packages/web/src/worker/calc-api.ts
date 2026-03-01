@@ -75,6 +75,7 @@ export interface ImpactDelta {
 export interface NodeImpact {
   deltas: Record<string, ImpactDelta>;
   pathCount: number;
+  pathNodes: number[];
 }
 
 /** Response from switchMainSkill */

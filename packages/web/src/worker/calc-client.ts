@@ -120,7 +120,7 @@ export class CalcClient {
   async calcNodeImpact(nodeId: number, singleNode?: boolean): Promise<NodeImpact> {
     const res = await this.send({ type: "calcNodeImpact", nodeId, singleNode });
     if (res.type === "nodeImpact") return res.data;
-    return { deltas: {}, pathCount: 1 };
+    return { deltas: {}, pathCount: 1, pathNodes: [] };
   }
 
   async getNodePower(stat: "dps" | "life" | "es"): Promise<Record<number, number>> {
