@@ -17,6 +17,7 @@ export default defineConfig({
   },
   server: {
     host: "0.0.0.0",
+    allowedHosts: ["pob.haaser.me"],
     proxy: {
       "/poe-ninja-api": {
         target: "https://poe.ninja",

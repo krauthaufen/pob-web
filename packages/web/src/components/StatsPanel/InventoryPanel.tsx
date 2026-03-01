@@ -1,100 +1,216 @@
+import { useState, useEffect } from "react";
 import { useBuildStore } from "@/store/build-store";
 import type { EquippedItem } from "@/worker/calc-api";
+import { resolveItemImages } from "@/utils/item-images";
 
-const RARITY_COLORS: Record<string, string> = {
-  Unique: "border-poe-accent text-poe-accent",
-  Rare: "border-yellow-400 text-yellow-400",
-  Magic: "border-blue-400 text-blue-400",
-  Normal: "border-gray-500 text-gray-300",
+// --- PoB rarity colors (from Data/Global.lua colorCodes) ---
+// Rarity strings from PoB are UPPERCASE: "NORMAL", "MAGIC", "RARE", "UNIQUE", "RELIC"
+const RARITY_COLOR: Record<string, string> = {
+  UNIQUE: "#af6025",
+  RELIC: "#60c060",
+  RARE: "#ffff77",
+  MAGIC: "#8888ff",
+  NORMAL: "#c8c8c8",
 };
 
-const RARITY_BG: Record<string, string> = {
-  Unique: "bg-poe-accent/10",
-  Rare: "bg-yellow-400/10",
-  Magic: "bg-blue-400/10",
-  Normal: "bg-gray-500/10",
+function rarityColor(rarity: string): string {
+  return RARITY_COLOR[rarity] ?? "#c8c8c8";
+}
+
+// --- Grid slot definitions ---
+type SlotDef = {
+  name: string;
+  label: string;
+  gridArea: string;
 };
 
-// Slot display order
-const SLOT_ORDER = [
-  "Weapon 1", "Weapon 1 Swap",
-  "Weapon 2", "Weapon 2 Swap",
-  "Helmet", "Body Armour", "Gloves", "Boots",
-  "Amulet", "Ring 1", "Ring 2", "Belt",
-  "Flask 1", "Flask 2", "Flask 3", "Flask 4", "Flask 5",
+// Weapon set 1
+const WEAPON_SET_1: SlotDef[] = [
+  { name: "Weapon 1", label: "Weapon", gridArea: "Weapon" },
+  { name: "Weapon 2", label: "Offhand", gridArea: "Offhand" },
 ];
 
-function ItemCard({ item }: { item: EquippedItem }) {
-  const colors = RARITY_COLORS[item.rarity] ?? RARITY_COLORS.Normal;
-  const bg = RARITY_BG[item.rarity] ?? RARITY_BG.Normal;
+// Weapon set 2 (swap)
+const WEAPON_SET_2: SlotDef[] = [
+  { name: "Weapon 1 Swap", label: "Weapon", gridArea: "Weapon" },
+  { name: "Weapon 2 Swap", label: "Offhand", gridArea: "Offhand" },
+];
+
+// Non-weapon equipment slots
+const EQUIP_SLOTS: SlotDef[] = [
+  { name: "Helmet", label: "Helm", gridArea: "Helm" },
+  { name: "Body Armour", label: "Body", gridArea: "Body" },
+  { name: "Amulet", label: "Amulet", gridArea: "Amulet" },
+  { name: "Gloves", label: "Gloves", gridArea: "Gloves" },
+  { name: "Belt", label: "Belt", gridArea: "Belt" },
+  { name: "Boots", label: "Boots", gridArea: "Boots" },
+  { name: "Ring 1", label: "Ring", gridArea: "Ring1" },
+  { name: "Ring 2", label: "Ring", gridArea: "Ring2" },
+  { name: "Flask 1", label: "Flask", gridArea: "Flask1" },
+  { name: "Flask 2", label: "Flask", gridArea: "Flask2" },
+  { name: "Flask 3", label: "Flask", gridArea: "Flask3" },
+  { name: "Flask 4", label: "Flask", gridArea: "Flask4" },
+  { name: "Flask 5", label: "Flask", gridArea: "Flask5" },
+];
+
+// poe.ninja-style 8-column grid layout
+const GRID_TEMPLATE = `
+  "Weapon Weapon .     Helm  Helm  .      Offhand Offhand"
+  "Weapon Weapon .     Helm  Helm  .      Offhand Offhand"
+  "Weapon Weapon Ring1 Body  Body  Amulet Offhand Offhand"
+  "Weapon Weapon .     Body  Body  Ring2  Offhand Offhand"
+  ".      Gloves Gloves Body Body  Boots  Boots   ."
+  ".      Gloves Gloves Belt  Belt  Boots  Boots   ."
+  ".      Flask1 Flask2 Flask3 Flask4 Flask5 .      ."
+`;
+
+// --- Item detail popover ---
+function ItemDetail({ item, onClose }: { item: EquippedItem; onClose: () => void }) {
+  const color = rarityColor(item.rarity);
 
   return (
-    <div className={`rounded border ${colors} ${bg} mb-2`}>
-      {/* Header */}
-      <div className="border-b border-inherit px-3 py-1.5">
-        <p className="text-xs font-semibold">{item.name || item.baseName}</p>
-        {item.name && item.baseName && item.name !== item.baseName && (
-          <p className="text-[10px] text-gray-400">{item.baseName}</p>
-        )}
-        <div className="flex gap-2 text-[10px] text-gray-500">
-          <span>{item.slot}</span>
-          {item.quality > 0 && <span>Quality: {item.quality}%</span>}
+    <div
+      className="absolute inset-0 z-10 overflow-y-auto"
+      style={{ background: "#0b0e11ee" }}
+    >
+      <div className="p-3">
+        <button
+          className="mb-2 flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200"
+          onClick={onClose}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M8 2L4 6L8 10" />
+          </svg>
+          Back
+        </button>
+
+        {/* Item header */}
+        <div
+          className="mb-2 rounded px-3 py-2"
+          style={{ borderLeft: `3px solid ${color}`, background: "#121619" }}
+        >
+          <p className="text-sm font-semibold" style={{ color }}>
+            {item.name || item.baseName}
+          </p>
+          {item.name && item.baseName && item.name !== item.baseName && (
+            <p className="text-[11px] text-gray-400">{item.baseName}</p>
+          )}
+          <div className="mt-0.5 flex gap-2 text-[10px] text-gray-500">
+            <span>{item.slot}</span>
+            {item.quality > 0 && <span>Quality: {item.quality}%</span>}
+            {item.levelReq > 0 && <span>Req: Lv{item.levelReq}</span>}
+          </div>
         </div>
-      </div>
 
-      {/* Mods */}
-      <div className="px-3 py-1.5 text-xs">
-        {/* Enchant mods */}
-        {item.enchantMods.length > 0 && (
-          <div className="mb-1">
-            {item.enchantMods.map((mod, i) => (
-              <p key={`e${i}`} className="text-cyan-300">{mod}</p>
-            ))}
-          </div>
-        )}
+        {/* Mods */}
+        <div className="rounded px-3 py-2 text-xs" style={{ background: "#121619" }}>
+          {item.enchantMods.length > 0 && (
+            <div className="mb-1.5">
+              {item.enchantMods.map((mod, i) => (
+                <p key={`e${i}`} className="leading-relaxed" style={{ color: "#b8daf1" }}>{mod}</p>
+              ))}
+            </div>
+          )}
 
-        {/* Implicit mods */}
-        {item.implicitMods.length > 0 && (
-          <div className="mb-1">
-            {item.implicitMods.map((mod, i) => (
-              <p key={`i${i}`} className="text-blue-300">{mod}</p>
-            ))}
-            <div className="my-1 border-b border-gray-700" />
-          </div>
-        )}
+          {item.implicitMods.length > 0 && (
+            <div className="mb-1.5">
+              {item.implicitMods.map((mod, i) => (
+                <p key={`i${i}`} className="leading-relaxed" style={{ color: "#8888ff" }}>{mod}</p>
+              ))}
+              <div className="my-1.5 border-b border-gray-700" />
+            </div>
+          )}
 
-        {/* Explicit mods */}
-        {item.explicitMods.map((mod, i) => (
-          <p key={`x${i}`} className="text-gray-200">{mod}</p>
-        ))}
+          {item.explicitMods.map((mod, i) => (
+            <p key={`x${i}`} className="leading-relaxed" style={{ color: "#8888ff" }}>{mod}</p>
+          ))}
 
-        {/* Crafted mods */}
-        {item.craftedMods.map((mod, i) => (
-          <p key={`c${i}`} className="text-cyan-400">{mod}</p>
-        ))}
+          {item.craftedMods.length > 0 && (
+            <div className="mt-1.5 border-t border-gray-700 pt-1.5">
+              {item.craftedMods.map((mod, i) => (
+                <p key={`c${i}`} className="leading-relaxed" style={{ color: "#b8daf1" }}>{mod}</p>
+              ))}
+            </div>
+          )}
 
-        {/* Rune mods */}
-        {item.runeMods.length > 0 && (
-          <div className="mt-1 border-t border-gray-700 pt-1">
-            {item.runeMods.map((mod, i) => (
-              <p key={`r${i}`} className="text-green-300">{mod}</p>
-            ))}
-          </div>
-        )}
+          {item.runeMods.length > 0 && (
+            <div className="mt-1.5 border-t border-gray-700 pt-1.5">
+              {item.runeMods.map((mod, i) => (
+                <p key={`r${i}`} className="leading-relaxed" style={{ color: "#5cf0bb" }}>{mod}</p>
+              ))}
+            </div>
+          )}
 
-        {/* Empty item */}
-        {item.implicitMods.length === 0 && item.explicitMods.length === 0 &&
-         item.craftedMods.length === 0 && item.enchantMods.length === 0 &&
-         item.runeMods.length === 0 && (
-          <p className="text-gray-600 italic">No mods</p>
-        )}
+          {item.implicitMods.length === 0 && item.explicitMods.length === 0 &&
+           item.craftedMods.length === 0 && item.enchantMods.length === 0 &&
+           item.runeMods.length === 0 && (
+            <p className="italic text-gray-600">No mods</p>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
+// --- Slot cell ---
+function SlotCell({
+  slot,
+  item,
+  imageUrl,
+  onClick,
+}: {
+  slot: SlotDef;
+  item: EquippedItem | undefined;
+  imageUrl: string | undefined;
+  onClick: () => void;
+}) {
+  const border = item ? rarityColor(item.rarity) : "#2a3038";
+  const hasItem = !!item;
+
+  return (
+    <button
+      className="relative flex flex-col items-center justify-center rounded transition-colors hover:brightness-125"
+      style={{
+        gridArea: slot.gridArea,
+        background: "#121619",
+        border: `1px solid ${border}`,
+        opacity: hasItem ? 1 : 0.4,
+        minHeight: 0,
+      }}
+      onClick={hasItem ? onClick : undefined}
+      title={item ? (item.name || item.baseName) : slot.label}
+    >
+      {imageUrl ? (
+        <img
+          src={imageUrl}
+          alt={item?.name || item?.baseName || slot.label}
+          className="h-full w-full object-contain p-0.5"
+          loading="lazy"
+          style={{ imageRendering: "auto" }}
+        />
+      ) : (
+        <span className="text-[9px] text-gray-600">{slot.label}</span>
+      )}
+    </button>
+  );
+}
+
+// --- Main panel ---
 export function InventoryPanel() {
   const { equippedItems, build } = useBuildStore();
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
+  const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+  const [weaponSet, setWeaponSet] = useState<1 | 2>(1);
+
+  // Resolve images when items change
+  useEffect(() => {
+    if (!equippedItems || equippedItems.length === 0) return;
+    let cancelled = false;
+    resolveItemImages(equippedItems).then((urls) => {
+      if (!cancelled) setImageUrls(urls);
+    });
+    return () => { cancelled = true; };
+  }, [equippedItems]);
 
   if (!build) {
     return (
@@ -112,26 +228,91 @@ export function InventoryPanel() {
     );
   }
 
-  // Sort by slot order
-  const sorted = [...equippedItems].sort((a, b) => {
-    const ai = SLOT_ORDER.indexOf(a.slot);
-    const bi = SLOT_ORDER.indexOf(b.slot);
-    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
-  });
+  // Build slot→item map
+  const itemBySlot = new Map<string, EquippedItem>();
+  for (const item of equippedItems) {
+    itemBySlot.set(item.slot, item);
+  }
+
+  // Check if swap weapons exist
+  const hasSwapWeapons = itemBySlot.has("Weapon 1 Swap") || itemBySlot.has("Weapon 2 Swap");
+  const weaponSlots = weaponSet === 1 ? WEAPON_SET_1 : WEAPON_SET_2;
+  const allSlots = [...weaponSlots, ...EQUIP_SLOTS];
+
+  const selectedItem = selectedSlot ? itemBySlot.get(selectedSlot) : null;
 
   return (
-    <div className="flex flex-col gap-1 p-4">
-      <div className="mb-2">
-        <h2 className="text-sm font-semibold text-poe-accent">
-          {build.ascendancy || build.className}
-        </h2>
-        <p className="text-xs text-gray-400">
-          {sorted.length} items equipped
-        </p>
+    <div className="relative flex h-full flex-col" style={{ background: "#0b0e11" }}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 pt-3 pb-2">
+        <div>
+          <h2 className="text-sm font-semibold" style={{ color: "#af6025" }}>
+            {build.ascendancy || build.className}
+          </h2>
+          <p className="text-[10px] text-gray-500">
+            {equippedItems.length} items equipped
+          </p>
+        </div>
+
+        {/* Weapon set toggle */}
+        {hasSwapWeapons && (
+          <div className="flex gap-1">
+            <button
+              className="rounded border px-2 py-0.5 text-[10px] font-bold"
+              style={{
+                borderColor: weaponSet === 1 ? "#8888ff" : "#2a3038",
+                color: weaponSet === 1 ? "#8888ff" : "#555",
+                background: weaponSet === 1 ? "#8888ff15" : "transparent",
+              }}
+              onClick={() => setWeaponSet(1)}
+            >
+              I
+            </button>
+            <button
+              className="rounded border px-2 py-0.5 text-[10px] font-bold"
+              style={{
+                borderColor: weaponSet === 2 ? "#8888ff" : "#2a3038",
+                color: weaponSet === 2 ? "#8888ff" : "#555",
+                background: weaponSet === 2 ? "#8888ff15" : "transparent",
+              }}
+              onClick={() => setWeaponSet(2)}
+            >
+              II
+            </button>
+          </div>
+        )}
       </div>
-      {sorted.map((item, i) => (
-        <ItemCard key={`${item.slot}-${i}`} item={item} />
-      ))}
+
+      {/* poe.ninja-style 8-col equipment grid */}
+      <div
+        className="mx-auto w-full px-2 pb-3"
+        style={{
+          display: "grid",
+          gridTemplateAreas: GRID_TEMPLATE,
+          gridTemplateColumns: "repeat(8, 1fr)",
+          gridTemplateRows: "repeat(7, 1fr)",
+          gap: "3px",
+          maxWidth: "310px",
+        }}
+      >
+        {allSlots.map((slot) => (
+          <SlotCell
+            key={slot.gridArea + slot.name}
+            slot={slot}
+            item={itemBySlot.get(slot.name)}
+            imageUrl={imageUrls[slot.name]}
+            onClick={() => setSelectedSlot(slot.name)}
+          />
+        ))}
+      </div>
+
+      {/* Detail overlay */}
+      {selectedItem && (
+        <ItemDetail
+          item={selectedItem}
+          onClose={() => setSelectedSlot(null)}
+        />
+      )}
     </div>
   );
 }

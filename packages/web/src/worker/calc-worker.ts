@@ -810,7 +810,7 @@ function pobWebGetItemsData(jsonArg)
           slot = slotName,
           name = item.title or item.name or "",
           baseName = item.baseName or item.base and item.base.name or "",
-          rarity = item.rarity or "Normal",
+          rarity = item.rarity or "NORMAL",
           quality = item.quality or 0,
           levelReq = item.levelReq or 0,
           implicitMods = {},
@@ -904,7 +904,7 @@ function pobWebGetJewelData(jsonArg)
         result[tostring(nodeId)] = {
           name = item.title or item.name or "Unknown Jewel",
           baseName = item.baseName or "",
-          rarity = item.rarity or "Normal",
+          rarity = item.rarity or "NORMAL",
           implicitMods = implicitMods,
           explicitMods = explicitMods,
           enchantMods = enchantMods,
