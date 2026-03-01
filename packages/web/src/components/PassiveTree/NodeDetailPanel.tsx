@@ -37,7 +37,10 @@ interface Props {
   node: ProcessedNode;
   isAllocated: boolean;
   impact: NodeImpact | null;
+  impactFull: NodeImpact | null;
   impactLoading: boolean;
+  singleMode: boolean;
+  onToggleMode: () => void;
   allocating: boolean;
   jewelInfo: JewelInfo | null;
   onAllocate: () => void;
@@ -46,8 +49,8 @@ interface Props {
 }
 
 export function NodeDetailPanel({
-  node, isAllocated, impact, impactLoading, allocating, jewelInfo,
-  onAllocate, onDeallocate, onClose,
+  node, isAllocated, impact, impactFull, impactLoading, singleMode, onToggleMode,
+  allocating, jewelInfo, onAllocate, onDeallocate, onClose,
 }: Props) {
   const typeColor =
     node.type === "keystone" ? "text-poe-accent" :
@@ -154,11 +157,21 @@ export function NodeDetailPanel({
           <div className="mb-3 text-xs text-gray-500">Calculating impact...</div>
         ) : impactRows.length > 0 ? (
           <div className="mb-3">
-            <p className="mb-1 text-[10px] uppercase tracking-wider text-gray-500">
-              {isAllocated
-                ? `Removing${impact!.pathCount > 1 ? ` (${impact!.pathCount} nodes)` : ""}`
-                : `Allocating${impact!.pathCount > 1 ? ` (${impact!.pathCount} nodes)` : ""}`}
-            </p>
+            <div className="mb-1 flex items-center justify-between">
+              <p className="text-[10px] uppercase tracking-wider text-gray-500">
+                {isAllocated
+                  ? `Removing${impact!.pathCount > 1 ? ` (${impact!.pathCount} nodes)` : ""}`
+                  : `Allocating${impact!.pathCount > 1 ? ` (${impact!.pathCount} nodes)` : ""}`}
+              </p>
+              {impactFull && impactFull.pathCount > 1 && (
+                <button
+                  className="text-[10px] text-gray-500 hover:text-gray-300"
+                  onClick={onToggleMode}
+                >
+                  {singleMode ? "Show path" : "This node only"}
+                </button>
+              )}
+            </div>
             {impactRows.map(([stat, delta]) => (
               <ImpactRow key={stat} label={delta.label} value={delta.value} stat={stat} />
             ))}

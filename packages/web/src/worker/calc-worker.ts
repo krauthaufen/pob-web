@@ -712,10 +712,12 @@ function pobWebCalcNodeImpact(jsonArg)
   local pathCount = 1
   local calcOk, output
 
+  local singleNode = args.singleNode
+
   if not node.alloc then
     -- UNALLOCATED: include node.path (all nodes from allocated tree to this node)
     local addNodes = {}
-    if node.path and #node.path > 0 then
+    if not singleNode and node.path and #node.path > 0 then
       for _, n in ipairs(node.path) do addNodes[n] = true end
       pathCount = #node.path
     else
@@ -725,7 +727,7 @@ function pobWebCalcNodeImpact(jsonArg)
   else
     -- ALLOCATED: include node.depends (all nodes that would become orphaned)
     local removeNodes = {}
-    if node.depends and #node.depends > 0 then
+    if not singleNode and node.depends and #node.depends > 0 then
       for _, n in ipairs(node.depends) do removeNodes[n] = true end
       pathCount = #node.depends
     else
@@ -1548,6 +1550,7 @@ self.onmessage = async (e: MessageEvent<CalcRequest & { _id?: string }>) => {
       try {
         const result = bridge_call_json("pobWebCalcNodeImpact", JSON.stringify({
           nodeId: msg.nodeId,
+          singleNode: (msg as any).singleNode || false,
         }));
         const data = JSON.parse(result);
         if (data.error) {

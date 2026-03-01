@@ -303,12 +303,25 @@ export function App() {
 
         {/* Search + calc status */}
         <div className="pointer-events-auto flex items-center gap-2">
-          <input
-            className="w-32 rounded border border-poe-border bg-poe-panel/80 px-2 py-1.5 text-xs text-poe-text placeholder-gray-600 backdrop-blur-sm focus:border-poe-accent focus:outline-none sm:w-48"
-            placeholder="Search passives..."
-            value={treeSearch}
-            onChange={(e) => { setTreeSearch(e.target.value); saveUiState({ treeSearch: e.target.value }); }}
-          />
+          <div className="relative">
+            <input
+              className="w-32 rounded border border-poe-border bg-poe-panel/80 px-2 py-1.5 pr-6 text-xs text-poe-text placeholder-gray-600 backdrop-blur-sm focus:border-poe-accent focus:outline-none sm:w-48"
+              placeholder="Search passives..."
+              value={treeSearch}
+              onChange={(e) => { setTreeSearch(e.target.value); saveUiState({ treeSearch: e.target.value }); }}
+            />
+            {treeSearch && (
+              <button
+                className="absolute right-1 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-gray-500 hover:text-gray-300"
+                onClick={() => { setTreeSearch(""); saveUiState({ treeSearch: "" }); }}
+                aria-label="Clear search"
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <path d="M2 2L8 8M8 2L2 8" />
+                </svg>
+              </button>
+            )}
+          </div>
           {calcStatus && calcStatus !== "idle" && (
             <span className="rounded bg-poe-panel/80 px-2 py-1 text-xs text-gray-400 backdrop-blur-sm">
               {calcStatus === "calculating" ? "Calc..." :

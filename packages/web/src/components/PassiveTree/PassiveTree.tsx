@@ -108,7 +108,9 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
   const [selectedNode, setSelectedNode] = useState<ProcessedNode | null>(null);
   const selectedNodeRef = useRef<ProcessedNode | null>(null);
   const [nodeImpact, setNodeImpact] = useState<NodeImpact | null>(null);
+  const [nodeImpactSingle, setNodeImpactSingle] = useState<NodeImpact | null>(null);
   const [impactLoading, setImpactLoading] = useState(false);
+  const [impactSingleMode, setImpactSingleMode] = useState(false);
   const nodeTappedRef = useRef(false);
 
   const allocatedNodes = useBuildStore((s) => s.allocatedNodes);
@@ -644,7 +646,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
     world.y = screenH / 2 - cy * fitScale;
   }, [viewportResetCounter]);
 
-  // Calculate node impact when a node is selected
+  // Calculate node impact when a node is selected (both full path and single node)
   useEffect(() => {
     if (!selectedNode || !calcClient) return;
     if (selectedNode.type === "classStart" || selectedNode.type === "mastery") return;
@@ -652,11 +654,17 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
     let cancelled = false;
     setImpactLoading(true);
     setNodeImpact(null);
+    setNodeImpactSingle(null);
+    setImpactSingleMode(false);
 
-    calcClient.calcNodeImpact(selectedNode.hash)
-      .then((impact) => {
+    Promise.all([
+      calcClient.calcNodeImpact(selectedNode.hash, false),
+      calcClient.calcNodeImpact(selectedNode.hash, true),
+    ])
+      .then(([full, single]) => {
         if (!cancelled) {
-          setNodeImpact(impact);
+          setNodeImpact(full);
+          setNodeImpactSingle(single);
           setImpactLoading(false);
         }
       })
@@ -957,13 +965,16 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
         <NodeDetailPanel
           node={selectedNode}
           isAllocated={allocatedNodes.has(selectedNode.hash)}
-          impact={nodeImpact}
+          impact={impactSingleMode ? nodeImpactSingle : nodeImpact}
+          impactFull={nodeImpact}
           impactLoading={impactLoading}
+          singleMode={impactSingleMode}
+          onToggleMode={() => setImpactSingleMode((v) => !v)}
           allocating={allocating}
           jewelInfo={selectedNode.type === "jewel" ? jewelData?.[String(selectedNode.hash)] ?? null : null}
           onAllocate={handleAllocate}
           onDeallocate={handleDeallocate}
-          onClose={() => { selectedNodeRef.current = null; setSelectedNode(null); setNodeImpact(null); }}
+          onClose={() => { selectedNodeRef.current = null; setSelectedNode(null); setNodeImpact(null); setNodeImpactSingle(null); }}
         />
       )}
     </div>

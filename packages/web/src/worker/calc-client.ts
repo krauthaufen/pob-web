@@ -117,8 +117,8 @@ export class CalcClient {
     return { success: false, allocatedNodes: [] };
   }
 
-  async calcNodeImpact(nodeId: number): Promise<NodeImpact> {
-    const res = await this.send({ type: "calcNodeImpact", nodeId });
+  async calcNodeImpact(nodeId: number, singleNode?: boolean): Promise<NodeImpact> {
+    const res = await this.send({ type: "calcNodeImpact", nodeId, singleNode });
     if (res.type === "nodeImpact") return res.data;
     return { deltas: {}, pathCount: 1 };
   }

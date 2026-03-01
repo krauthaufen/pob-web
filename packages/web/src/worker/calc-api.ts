@@ -15,7 +15,7 @@ export type CalcRequest =
   | { type: "switchMainSkill"; index: number }
   | { type: "allocNode"; nodeId: number }
   | { type: "deallocNode"; nodeId: number }
-  | { type: "calcNodeImpact"; nodeId: number }
+  | { type: "calcNodeImpact"; nodeId: number; singleNode?: boolean }
   | { type: "getNodePower"; stat: "dps" | "life" | "es" }
   | { type: "getDisplayStats" }
   | { type: "exportBuild" }
