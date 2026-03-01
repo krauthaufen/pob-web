@@ -479,12 +479,19 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
         });
       }
 
+      // Check if a node's unlock constraint is satisfied
+      const isUnlockedInit = (node: ProcessedNode) => {
+        if (!node.unlockConstraint) return true;
+        return node.unlockConstraint.nodes.every(nid => currentAllocated.has(nid));
+      };
+
       for (const conn of connections) {
         const from = nodes.get(conn.from);
         const to = nodes.get(conn.to);
         if (!from || !to) continue;
         if (from.ascendancy !== to.ascendancy) continue;
         if (from.ascendancy && from.ascendancy !== activeAsc) continue;
+        if (!isUnlockedInit(from) || !isUnlockedInit(to)) continue;
 
         if (from.ascendancy) {
           drawConn(ascConnGfx, from, to, currentAllocated, true);
@@ -550,6 +557,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
 
         nodeContainer.x = node.x;
         nodeContainer.y = node.y;
+        nodeContainer.visible = isUnlockedInit(node);
         nodeContainer.eventMode = "static";
         nodeContainer.cursor = "pointer";
         (nodeContainer as any).__allocated = isAllocated;
@@ -658,6 +666,12 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
     const connections = connectionsDataRef.current;
     if (!connGfx || !nodes.size) return;
 
+    // Check if a node's unlock constraint is satisfied
+    const isUnlocked = (node: ProcessedNode) => {
+      if (!node.unlockConstraint) return true;
+      return node.unlockConstraint.nodes.every(nid => allocatedNodes.has(nid));
+    };
+
     const activeAsc = useBuildStore.getState().build?.ascendancy || undefined;
     const ascConnGfx = ascConnGfxRef.current;
     connGfx.clear();
@@ -668,6 +682,8 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       if (!from || !to) continue;
       if (from.ascendancy !== to.ascendancy) continue;
       if (from.ascendancy && from.ascendancy !== activeAsc) continue;
+      // Hide connections to locked nodes
+      if (!isUnlocked(from) || !isUnlocked(to)) continue;
 
       const isAsc = !!from.ascendancy;
       const gfx = isAsc && ascConnGfx ? ascConnGfx : connGfx;
@@ -693,6 +709,8 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       const node = nodes.get(id);
       if (!node || node.type === "ascendancyStart") continue;
       if (node.ascendancy && node.ascendancy !== activeAsc) continue;
+      // Hide nodes with unsatisfied unlock constraints
+      container.visible = isUnlocked(node);
       const isAllocated = allocatedNodes.has(node.hash);
       const ji = node.type === "jewel" ? jewelData?.[String(node.hash)] ?? null : null;
       const prevJi = (container as any).__jewelInfo as string | undefined;

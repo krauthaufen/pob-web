@@ -75,6 +75,7 @@ export interface TreeNode {
   grantedIntelligence?: number;
   grantedPassivePoints?: number;
   nodeOverlay?: { alloc: string; path: string; unalloc: string };
+  unlockConstraint?: { ascendancy: string; nodes: number[] };
 }
 
 export interface ProcessedNode {
@@ -90,4 +91,5 @@ export interface ProcessedNode {
   connections: string[];
   size: number; // render radius
   nodeOverlay?: { alloc: string; path: string; unalloc: string };
+  unlockConstraint?: { ascendancy: string; nodes: number[] };
 }

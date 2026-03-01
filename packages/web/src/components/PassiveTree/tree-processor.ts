@@ -105,6 +105,7 @@ export function processTree(data: TreeData, activeAscendancy?: string): {
       connections: (node.connections ?? []).map(c => String(c.id)),
       size: getNodeSize(type),
       nodeOverlay: node.nodeOverlay,
+      unlockConstraint: node.unlockConstraint,
     });
   }
 
