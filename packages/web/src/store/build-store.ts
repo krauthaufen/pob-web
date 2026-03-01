@@ -141,7 +141,10 @@ export const useBuildStore = create<BuildState>((set) => ({
       calcError: null,
     }),
 
-  setImportCode: (importCode) => set({ importCode }),
+  setImportCode: (importCode) => {
+    set({ importCode });
+    try { sessionStorage.setItem("pob-import-code", importCode); } catch {}
+  },
 
   setCalcStatus: (calcStatus, error) =>
     set({ calcStatus, calcError: error ?? null }),

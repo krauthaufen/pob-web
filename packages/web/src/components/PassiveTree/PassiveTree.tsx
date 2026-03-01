@@ -17,6 +17,22 @@ import {
   type SpriteAtlas,
 } from "./sprite-loader";
 
+// Save/restore viewport across iOS background kills
+const VIEWPORT_KEY = "pob-viewport";
+function saveViewport(world: { x: number; y: number; scale: { x: number } }) {
+  try {
+    sessionStorage.setItem(VIEWPORT_KEY, JSON.stringify({
+      x: world.x, y: world.y, scale: world.scale.x,
+    }));
+  } catch {}
+}
+function loadViewport(): { x: number; y: number; scale: number } | null {
+  try {
+    const s = sessionStorage.getItem(VIEWPORT_KEY);
+    return s ? JSON.parse(s) : null;
+  } catch { return null; }
+}
+
 const COLORS = {
   bg: 0x0c0c0e,
   connection: 0x3a3a4e,
@@ -272,7 +288,16 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
 
     (el as any).__dragMoved = () => dragMoved || touchDragMoved;
 
+    // Save viewport when page goes to background (iOS kills shortly after)
+    const onVisChange = () => {
+      if (document.visibilityState === "hidden" && worldRef.current) {
+        saveViewport(worldRef.current);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisChange);
+
     return () => {
+      document.removeEventListener("visibilitychange", onVisChange);
       el.removeEventListener("wheel", onWheel);
       el.removeEventListener("pointerdown", onPointerDown);
       el.removeEventListener("pointermove", onPointerMove);
@@ -556,12 +581,19 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       }
       world.addChild(nodeLayer);
 
-      // Center and fit
-      world.scale.set(fitScale);
-      const cx = (bounds.minX + bounds.maxX) / 2;
-      const cy = (bounds.minY + bounds.maxY) / 2;
-      world.x = screenW / 2 - cx * fitScale;
-      world.y = screenH / 2 - cy * fitScale;
+      // Restore saved viewport or fit to screen
+      const savedVp = loadViewport();
+      if (savedVp) {
+        world.scale.set(savedVp.scale);
+        world.x = savedVp.x;
+        world.y = savedVp.y;
+      } else {
+        world.scale.set(fitScale);
+        const cx = (bounds.minX + bounds.maxX) / 2;
+        const cy = (bounds.minY + bounds.maxY) / 2;
+        world.x = screenW / 2 - cx * fitScale;
+        world.y = screenH / 2 - cy * fitScale;
+      }
     }
 
     render();

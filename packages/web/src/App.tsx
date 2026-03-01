@@ -11,12 +11,35 @@ import type { TreeData } from "@/components/PassiveTree/tree-types";
 import { CalcClient } from "@/worker/calc-client";
 import { decodeBuildCode, parseBuildXml, parsePoeNinjaUrl, fetchPoeNinjaBuild } from "@/worker/build-decoder";
 
+// Persist/restore lightweight UI state across iOS background kills
+const SESSION_KEY = "pob-ui-state";
+type UiState = {
+  sidePanel?: string;
+  menuOpen?: boolean;
+  treeSearch?: string;
+};
+
+function saveUiState(patch: Partial<UiState>) {
+  try {
+    const prev = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "{}");
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ ...prev, ...patch }));
+  } catch {}
+}
+
+function loadUiState(): UiState {
+  try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || "{}"); } catch { return {}; }
+}
+
 export function App() {
+  const saved = loadUiState();
   const [treeData, setTreeData] = useState<TreeData | null>(null);
   const [treeLoading, setTreeLoading] = useState(true);
-  const [treeSearch, setTreeSearch] = useState("");
-  const [sidePanel, setSidePanel] = useState<"import" | "stats" | "skills" | "defence" | "items">("import");
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [treeSearch, setTreeSearch] = useState(saved.treeSearch || "");
+  const [sidePanel, setSidePanelRaw] = useState<"import" | "stats" | "skills" | "defence" | "items">((saved.sidePanel as any) || "import");
+  const [menuOpen, setMenuOpenRaw] = useState(saved.menuOpen ?? false);
+
+  const setSidePanel = useCallback((p: typeof sidePanel) => { setSidePanelRaw(p); saveUiState({ sidePanel: p }); }, []);
+  const setMenuOpen = useCallback((v: boolean) => { setMenuOpenRaw(v); saveUiState({ menuOpen: v }); }, []);
   const build = useBuildStore((s) => s.build);
   const calcStatus = useBuildStore((s) => s.calcStatus);
   const setCalcStatus = useBuildStore((s) => s.setCalcStatus);
@@ -194,12 +217,13 @@ export function App() {
       });
   }, []);
 
-  // Auto-import example build on mount
+  // Auto-import: restore last build from sessionStorage, or fall back to example
   useEffect(() => {
     if (build) return; // already have a build
     (async () => {
       try {
-        let code = EXAMPLE_CODE;
+        let code: string;
+        try { code = sessionStorage.getItem("pob-import-code") || EXAMPLE_CODE; } catch { code = EXAMPLE_CODE; }
         const ninjaUrl = parsePoeNinjaUrl(code);
         if (ninjaUrl) {
           code = await fetchPoeNinjaBuild(ninjaUrl.account, ninjaUrl.character);
@@ -277,7 +301,7 @@ export function App() {
             className="w-32 rounded border border-poe-border bg-poe-panel/80 px-2 py-1.5 text-xs text-poe-text placeholder-gray-600 backdrop-blur-sm focus:border-poe-accent focus:outline-none sm:w-48"
             placeholder="Search passives..."
             value={treeSearch}
-            onChange={(e) => setTreeSearch(e.target.value)}
+            onChange={(e) => { setTreeSearch(e.target.value); saveUiState({ treeSearch: e.target.value }); }}
           />
           {calcStatus && calcStatus !== "idle" && (
             <span className="rounded bg-poe-panel/80 px-2 py-1 text-xs text-gray-400 backdrop-blur-sm">
