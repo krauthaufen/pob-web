@@ -96,8 +96,10 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
   const setAllocatedNodes = useBuildStore((s) => s.setAllocatedNodes);
   const setHoveredNode = useBuildStore((s) => s.setHoveredNode);
   const setCalcDisplay = useBuildStore((s) => s.setCalcDisplay);
+  const setDisplayStats = useBuildStore((s) => s.setDisplayStats);
   const jewelData = useBuildStore((s) => s.jewelData);
   const weaponSetNodes = useBuildStore((s) => s.weaponSetNodes);
+  const buildAscendancy = useBuildStore((s) => s.build?.ascendancy);
 
   // Initialize PixiJS
   useEffect(() => {
@@ -474,7 +476,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
             }
           }
         }
-        const bgTreeSize = ascBgSize * 2.5;
+        const bgTreeSize = ascBgSize * 2.675;
         // Class-specific art behind the ring
         const classBgAtlas = atlases["ascendancy-background_250_250_BC7"];
         if (classBgAtlas) {
@@ -482,7 +484,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
           if (classArtTex) {
             const classArtSprite = new Sprite(classArtTex);
             classArtSprite.anchor.set(0.5);
-            classArtSprite.scale.set((ascBgSize * 2) / classArtTex.width);
+            classArtSprite.scale.set((ascBgSize * 2.14) / classArtTex.width);
             classArtSprite.alpha = 0.6;
             world.addChild(classArtSprite);
           }
@@ -565,7 +567,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
     render();
 
     return () => { cancelled = true; };
-  }, [appReady, treeData, setHoveredNode, createNodeVisual]);
+  }, [appReady, treeData, setHoveredNode, createNodeVisual, buildAscendancy]);
 
   // Calculate node impact when a node is selected
   useEffect(() => {
@@ -765,6 +767,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       if (result.success) {
         setAllocatedNodes(result.allocatedNodes);
         if (result.display) setCalcDisplay(result.display);
+        calcClient.getDisplayStats().then(setDisplayStats).catch(() => {});
       }
     } catch (e) {
       console.error("[PoB] allocNode failed:", e);
@@ -774,7 +777,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       setSelectedNode(null);
       setNodeImpact(null);
     }
-  }, [selectedNode, calcClient, allocating, setAllocatedNodes, setCalcDisplay]);
+  }, [selectedNode, calcClient, allocating, setAllocatedNodes, setCalcDisplay, setDisplayStats]);
 
   const handleDeallocate = useCallback(async () => {
     if (!selectedNode || !calcClient || allocating) return;
@@ -784,6 +787,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       if (result.success) {
         setAllocatedNodes(result.allocatedNodes);
         if (result.display) setCalcDisplay(result.display);
+        calcClient.getDisplayStats().then(setDisplayStats).catch(() => {});
       }
     } catch (e) {
       console.error("[PoB] deallocNode failed:", e);
@@ -793,7 +797,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       setSelectedNode(null);
       setNodeImpact(null);
     }
-  }, [selectedNode, calcClient, allocating, setAllocatedNodes, setCalcDisplay]);
+  }, [selectedNode, calcClient, allocating, setAllocatedNodes, setCalcDisplay, setDisplayStats]);
 
   return (
     <div className="relative h-full w-full">

@@ -47,21 +47,23 @@ const EQUIP_SLOTS: SlotDef[] = [
   { name: "Ring 1", label: "Ring", gridArea: "Ring1" },
   { name: "Ring 2", label: "Ring", gridArea: "Ring2" },
   { name: "Flask 1", label: "Flask", gridArea: "Flask1" },
+  { name: "Charm 1", label: "Charm", gridArea: "Charm1" },
+  { name: "Charm 2", label: "Charm", gridArea: "Charm2" },
+  { name: "Charm 3", label: "Charm", gridArea: "Charm3" },
   { name: "Flask 2", label: "Flask", gridArea: "Flask2" },
-  { name: "Flask 3", label: "Flask", gridArea: "Flask3" },
-  { name: "Flask 4", label: "Flask", gridArea: "Flask4" },
-  { name: "Flask 5", label: "Flask", gridArea: "Flask5" },
 ];
 
-// poe.ninja-style 8-column grid layout
+// poe.ninja-style 7-column grid layout
 const GRID_TEMPLATE = `
-  "Weapon Weapon .     Helm  Helm  .      Offhand Offhand"
-  "Weapon Weapon .     Helm  Helm  .      Offhand Offhand"
-  "Weapon Weapon Ring1 Body  Body  Amulet Offhand Offhand"
-  "Weapon Weapon .     Body  Body  Ring2  Offhand Offhand"
-  ".      Gloves Gloves Body Body  Boots  Boots   ."
-  ".      Gloves Gloves Belt  Belt  Boots  Boots   ."
-  ".      Flask1 Flask2 Flask3 Flask4 Flask5 .      ."
+  "Weapon Weapon Helm   Helm   .      Offhand Offhand"
+  "Weapon Weapon Helm   Helm   .      Offhand Offhand"
+  "Weapon Weapon Body   Body   Amulet Offhand Offhand"
+  "Weapon Weapon Body   Body   .      Offhand Offhand"
+  ".      Ring1  Body   Body   Ring2  .       ."
+  "Gloves Gloves Belt   Belt   Boots  Boots   ."
+  "Gloves Gloves .      .      Boots  Boots   ."
+  "Flask1 .      Charm1 Charm2 Charm3 .       Flask2"
+  "Flask1 .      .      .      .      .       Flask2"
 `;
 
 // --- Item detail popover ---
@@ -289,8 +291,8 @@ export function InventoryPanel() {
         style={{
           display: "grid",
           gridTemplateAreas: GRID_TEMPLATE,
-          gridTemplateColumns: "repeat(8, 1fr)",
-          gridTemplateRows: "repeat(7, 1fr)",
+          gridTemplateColumns: "repeat(7, 1fr)",
+          gridTemplateRows: "repeat(9, 40px)",
           gap: "3px",
           maxWidth: "310px",
         }}

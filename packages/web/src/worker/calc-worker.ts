@@ -729,10 +729,268 @@ function pobWebCalcNodeImpact(jsonArg)
   return dkjson.encode({ deltas = deltas, pathCount = pathCount })
 end
 
+-- Get PoB sidebar display stats (mirrors BuildDisplayStats.lua)
+-- Returns groups of { label, value, color? } separated by spacers
+function pobWebGetDisplayStats(jsonArg)
+  if not build or not build.calcsTab then
+    return dkjson.encode({ groups = {} })
+  end
+  local o = build.calcsTab.mainOutput
+  if not o then
+    return dkjson.encode({ groups = {} })
+  end
+
+  local function fmt_d(v) return string.format("%d", v) end
+  local function fmt_1f(v) return string.format("%.1f", v) end
+  local function fmt_2f(v) return string.format("%.2f", v) end
+  local function fmt_3f(v) return string.format("%.3f", v) end
+  local function fmt_0f(v) return string.format("%.0f", v) end
+  local function fmt_pct_d(v) return string.format("%d%%", v) end
+  local function fmt_pct_1f(v) return string.format("%.1f%%", v) end
+  local function fmt_pct_2f(v) return string.format("%.2f%%", v) end
+  local function fmt_pct_0f(v) return string.format("%.0f%%", v) end
+  local function fmt_mod_1f(v) return string.format("%+.1f%%", (v - 1) * 100) end
+  local function fmt_2fs(v) return string.format("%.2fs", v) end
+  local function fmt_3fs(v) return string.format("%.3fs", v) end
+  local function fmt_1fm(v) return string.format("%.1fm", v) end
+  local function fmt_dpct(v) return string.format("%d%%", v * 100) end
+
+  -- Color codes (hex)
+  local LIFE = "#c51e1e"
+  local MANA = "#4040ff"
+  local ES = "#7070d0"
+  local SPIRIT = "#60a060"
+  local FIRE = "#b97123"
+  local COLD = "#3f6db3"
+  local LIGHT = "#adaa47"
+  local CHAOS = "#d02090"
+  local EVASION = "#33aa33"
+  local STRENGTH = "#c83030"
+  local DEXTERITY = "#30b060"
+  local INTELLIGENCE = "#3070d0"
+  local CURRENCY = "#e8d291"
+  local RAGE = "#be5728"
+  local RARE = "#ff7"
+
+  -- Helper: add stat to current group if value is truthy
+  local groups = {}
+  local cur = {}
+  local function sep()
+    if #cur > 0 then groups[#groups + 1] = cur; cur = {} end
+  end
+  local function add(label, val, color)
+    if val and val ~= "" then
+      cur[#cur + 1] = { label = label, value = val, color = color }
+    end
+  end
+  local function v(key) return o[key] or 0 end
+
+  -- === Group 1: Offence ===
+  if v("ActiveMinionLimit") > 0 then add("Active Minion Limit", fmt_d(v("ActiveMinionLimit"))) end
+  if v("AverageHit") > 0 then add("Average Hit", fmt_1f(v("AverageHit"))) end
+  if v("AverageDamage") > 0 then add("Average Damage", fmt_1f(v("AverageDamage"))) end
+  if v("AverageBurstDamage") > 0 and v("AverageBurstHits") > 1 then add("Average Burst Damage", fmt_1f(v("AverageBurstDamage"))) end
+  if v("Speed") > 0 and (v("TriggerTime") or 0) == 0 and not o.ChannelTime then
+    if o.mainSkill and o.mainSkill.skillFlags and o.mainSkill.skillFlags.spell then
+      add("Cast Rate", fmt_2f(v("Speed")))
+    else
+      add("Attack Rate", fmt_2f(v("Speed")))
+    end
+  end
+  if (v("TriggerTime") or 0) ~= 0 and v("Speed") > 0 then add("Effective Trigger Rate", fmt_2f(v("Speed"))) end
+  if v("WarcryCastTime") > 0 then add("Cast Time", fmt_2fs(v("WarcryCastTime"))) end
+  if o.ChannelTime and not o.TriggerTime then add("Channel Time", fmt_2fs(v("ChannelTime"))) end
+  if v("HitSpeed") > 0 and not o.TriggerTime then add("Hit Rate", fmt_2f(v("HitSpeed"))) end
+  if v("ChannelTimeToTrigger") > 0 then add("Channel Time", fmt_2fs(v("ChannelTimeToTrigger"))) end
+  if v("TrapThrowingTime") > 0 then add("Trap Throwing Time", fmt_2fs(v("TrapThrowingTime"))) end
+  if v("TrapCooldown") > 0 then add("Trap Cooldown", fmt_3fs(v("TrapCooldown"))) end
+  if v("MineLayingTime") > 0 then add("Mine Throwing Time", fmt_2fs(v("MineLayingTime"))) end
+  if v("TrapThrowCount") > 0 then add("Avg. Traps per Throw", fmt_2f(v("TrapThrowCount"))) end
+  if v("MineThrowCount") > 0 then add("Avg. Mines per Throw", fmt_2f(v("MineThrowCount"))) end
+  if v("TotemPlacementTime") > 0 and not o.TriggerTime then add("Totem Placement Time", fmt_2fs(v("TotemPlacementTime"))) end
+  if v("FiringRate") > 0 then add("Firing Rate", fmt_2f(v("FiringRate"))) end
+  if v("ReloadTime") > 0 then add("Reload Time", fmt_2fs(v("ReloadTime"))) end
+  if v("PreEffectiveCritChance") > 0 then add("Crit Chance", fmt_pct_2f(v("PreEffectiveCritChance"))) end
+  if v("CritChance") > 0 and v("CritChance") ~= v("PreEffectiveCritChance") then add("Effective Crit Chance", fmt_pct_2f(v("CritChance"))) end
+  if v("CritMultiplier") > 0 and v("CritChance") > 0 then add("Crit Multiplier", fmt_d(v("CritMultiplier") * 100) .. "%") end
+  if v("HitChance") > 0 then add("Hit Chance", fmt_pct_0f(v("HitChance"))) end
+  if v("TotalDPS") > 0 then add("Hit DPS", fmt_1f(v("TotalDPS"))) end
+  if v("TotalDot") > 0 then add("DoT DPS", fmt_1f(v("TotalDot"))) end
+  if v("WithDotDPS") > 0 and v("WithDotDPS") ~= v("TotalDPS") and v("PoisonDPS") == 0 and v("IgniteDPS") == 0 and v("BleedDPS") == 0 then
+    add("Total DPS inc. DoT", fmt_1f(v("WithDotDPS")))
+  end
+  if v("BleedDPS") > 0 then add("Bleed DPS", fmt_1f(v("BleedDPS"))) end
+  if v("IgniteDPS") > 0 then add("Ignite DPS", fmt_1f(v("IgniteDPS"))) end
+  if v("BurningGroundDPS") > 0 then add("Burning Ground DPS", fmt_1f(v("BurningGroundDPS"))) end
+  if v("PoisonDPS") > 0 then add("Poison DPS", fmt_1f(v("PoisonDPS"))) end
+  if v("CausticGroundDPS") > 0 then add("Caustic Ground DPS", fmt_1f(v("CausticGroundDPS"))) end
+  if v("DecayDPS") > 0 then add("Decay DPS", fmt_1f(v("DecayDPS"))) end
+  if v("TotalDotDPS") > 0 and v("TotalDotDPS") ~= v("TotalDot") and v("TotalDotDPS") ~= v("IgniteDPS") and v("TotalDotDPS") ~= v("BleedDPS") and v("TotalDotDPS") ~= v("PoisonDPS") then
+    add("Total DoT DPS", fmt_1f(v("TotalDotDPS")))
+  end
+  if v("ImpaleDPS") > 0 then add("Impale DPS", fmt_1f(v("ImpaleDPS"))) end
+  if v("CullingDPS") > 0 then add("Culling DPS", fmt_1f(v("CullingDPS"))) end
+  if v("CombinedDPS") > 0 and v("CombinedDPS") ~= (v("TotalDPS") + v("TotalDot")) then
+    add("Combined DPS", fmt_1f(v("CombinedDPS")))
+  end
+  if v("ExplodeChance") > 0 then add("Total Explode Chance", fmt_pct_0f(v("ExplodeChance"))) end
+  if v("Cooldown") > 0 then add("Skill Cooldown", fmt_3fs(v("Cooldown"))) end
+  if v("SealCooldown") > 0 then add("Seal Gain Frequency", fmt_2fs(v("SealCooldown"))) end
+  if v("SealMax") > 0 then add("Max Number of Seals", fmt_d(v("SealMax"))) end
+  if v("AreaOfEffectRadiusMetres") > 0 then add("AoE Radius", fmt_1fm(v("AreaOfEffectRadiusMetres"))) end
+  if v("ManaCost") > 0 and o.ManaHasCost then add("Mana Cost", fmt_d(v("ManaCost")), MANA) end
+  if v("ManaPerSecondCost") > 0 and o.ManaPerSecondHasCost then add("Mana Cost per second", fmt_2f(v("ManaPerSecondCost")), MANA) end
+  if v("LifeCost") > 0 and o.LifeHasCost then add("Life Cost", fmt_d(v("LifeCost")), LIFE) end
+  if v("LifePerSecondCost") > 0 and o.LifePerSecondHasCost then add("Life Cost per second", fmt_2f(v("LifePerSecondCost")), LIFE) end
+  if v("ESCost") > 0 and o.ESHasCost then add("Energy Shield Cost", fmt_d(v("ESCost")), ES) end
+  sep()
+
+  -- === Group 2: Attributes ===
+  if v("Str") > 0 then add("Strength", fmt_d(v("Str")), STRENGTH) end
+  if v("Dex") > 0 then add("Dexterity", fmt_d(v("Dex")), DEXTERITY) end
+  if v("Int") > 0 then add("Intelligence", fmt_d(v("Int")), INTELLIGENCE) end
+  sep()
+
+  -- === Group 3: Devotion/Tribute ===
+  if v("Devotion") > 0 then add("Devotion", fmt_d(v("Devotion")), RARE) end
+  if v("Tribute") > 0 then add("Tribute", fmt_d(v("Tribute")), RARE) end
+  sep()
+
+  -- === Group 4: EHP ===
+  if v("TotalEHP") > 0 then add("Effective Hit Pool", fmt_0f(v("TotalEHP"))) end
+  if v("PhysicalMaximumHitTaken") > 0 then add("Phys Max Hit", fmt_0f(v("PhysicalMaximumHitTaken"))) end
+  if v("LightningMaximumHitTaken") > 0 then
+    if v("LightningMaximumHitTaken") == v("ColdMaximumHitTaken") and v("LightningMaximumHitTaken") == v("FireMaximumHitTaken") then
+      add("Elemental Max Hit", fmt_0f(v("LightningMaximumHitTaken")), LIGHT)
+    else
+      add("Fire Max Hit", fmt_0f(v("FireMaximumHitTaken")), FIRE)
+      add("Cold Max Hit", fmt_0f(v("ColdMaximumHitTaken")), COLD)
+      add("Lightning Max Hit", fmt_0f(v("LightningMaximumHitTaken")), LIGHT)
+    end
+  end
+  if v("ChaosMaximumHitTaken") > 0 then add("Chaos Max Hit", fmt_0f(v("ChaosMaximumHitTaken")), CHAOS) end
+  sep()
+
+  -- === Group 5: Life ===
+  if v("Life") > 0 then add("Total Life", fmt_d(v("Life")), LIFE) end
+  if v("LifeUnreserved") > 0 and v("LifeUnreserved") < v("Life") then add("Unreserved Life", fmt_d(v("LifeUnreserved")), LIFE) end
+  if v("LifeUnreservedPercent") > 0 and v("LifeUnreservedPercent") < 100 then add("Unreserved Life", fmt_pct_d(v("LifeUnreservedPercent")), LIFE) end
+  if v("LifeRegenRecovery") ~= 0 then
+    local lbl = v("LifeRecovery") > 0 and "Life Recovery" or "Life Regen"
+    add(lbl, fmt_1f(v("LifeRegenRecovery")), LIFE)
+  end
+  if v("LifeLeechGainRate") > 0 then add("Life Leech/On Hit Rate", fmt_1f(v("LifeLeechGainRate")), LIFE) end
+  if v("LifeLeechGainPerHit") > 0 then add("Life Leech/Gain per Hit", fmt_1f(v("LifeLeechGainPerHit")), LIFE) end
+  sep()
+
+  -- === Group 6: Mana ===
+  if v("Mana") > 0 then add("Total Mana", fmt_d(v("Mana")), MANA) end
+  if v("ManaUnreserved") > 0 and v("ManaUnreserved") < v("Mana") then add("Unreserved Mana", fmt_d(v("ManaUnreserved")), MANA) end
+  if v("ManaUnreservedPercent") > 0 and v("ManaUnreservedPercent") < 100 then add("Unreserved Mana", fmt_pct_d(v("ManaUnreservedPercent")), MANA) end
+  if v("ManaRegenRecovery") ~= 0 then
+    local lbl = v("ManaRecovery") > 0 and "Mana Recovery" or "Mana Regen"
+    add(lbl, fmt_1f(v("ManaRegenRecovery")), MANA)
+  end
+  if v("ManaLeechGainRate") > 0 then add("Mana Leech/On Hit Rate", fmt_1f(v("ManaLeechGainRate")), MANA) end
+  sep()
+
+  -- === Group 7: Spirit ===
+  if v("Spirit") > 0 then add("Total Spirit", fmt_d(v("Spirit")), SPIRIT) end
+  if v("SpiritUnreserved") > 0 and v("SpiritUnreserved") < v("Spirit") then add("Unreserved Spirit", fmt_d(v("SpiritUnreserved")), SPIRIT) end
+  sep()
+
+  -- === Group 8: Energy Shield ===
+  if v("EnergyShield") > 0 then add("Energy Shield", fmt_d(v("EnergyShield")), ES) end
+  if v("EnergyShieldRegenRecovery") ~= 0 then
+    local lbl = v("EnergyShieldRecovery") > 0 and "ES Recovery" or "ES Regen"
+    add(lbl, fmt_1f(v("EnergyShieldRegenRecovery")), ES)
+  end
+  if v("EnergyShieldLeechGainRate") > 0 then add("ES Leech/On Hit Rate", fmt_1f(v("EnergyShieldLeechGainRate")), ES) end
+  sep()
+
+  -- === Group 9: Rage ===
+  if v("Rage") > 0 then add("Rage", fmt_d(v("Rage")), RAGE) end
+  if v("RageRegenRecovery") > 0 then add("Rage Regen", fmt_1f(v("RageRegenRecovery")), RAGE) end
+  sep()
+
+  -- === Group 10: Net Recovery ===
+  if v("TotalBuildDegen") > 0 then add("Total Degen", fmt_1f(v("TotalBuildDegen"))) end
+  if v("TotalNetRegen") ~= 0 then add("Total Net Recovery", string.format("%+.1f", v("TotalNetRegen"))) end
+  if v("NetLifeRegen") ~= 0 then add("Net Life Recovery", string.format("%+.1f", v("NetLifeRegen")), LIFE) end
+  if v("NetManaRegen") ~= 0 then add("Net Mana Recovery", string.format("%+.1f", v("NetManaRegen")), MANA) end
+  if v("NetEnergyShieldRegen") ~= 0 then add("Net ES Recovery", string.format("%+.1f", v("NetEnergyShieldRegen")), ES) end
+  sep()
+
+  -- === Group 11: Evasion ===
+  if v("Evasion") > 0 then add("Evasion Rating", fmt_d(v("Evasion")), EVASION) end
+  if v("EvadeChance") > 0 then add("Evade Chance", fmt_pct_d(v("EvadeChance")), EVASION) end
+  if v("MeleeEvadeChance") > 0 then add("Melee Evade Chance", fmt_pct_d(v("MeleeEvadeChance")), EVASION) end
+  if v("ProjectileEvadeChance") > 0 then add("Projectile Evade Chance", fmt_pct_d(v("ProjectileEvadeChance")), EVASION) end
+  if v("SpellEvadeChance") > 0 then add("Spell Evade Chance", fmt_pct_d(v("SpellEvadeChance")), EVASION) end
+  if v("SpellProjectileEvadeChance") > 0 then add("Spell Proj. Evade Chance", fmt_pct_d(v("SpellProjectileEvadeChance")), EVASION) end
+  if v("DeflectionRating") > 0 then add("Deflection Rating", fmt_d(v("DeflectionRating")), EVASION) end
+  if v("DeflectChance") > 0 then add("Deflect Chance", fmt_pct_d(v("DeflectChance")), EVASION) end
+  sep()
+
+  -- === Group 12: Armour ===
+  if v("Armour") > 0 then add("Armour", fmt_d(v("Armour"))) end
+  add("Phys. Damage Reduction", fmt_pct_d(v("PhysicalDamageReduction")))
+  sep()
+
+  -- === Group 13: Block/Dodge/Suppression ===
+  if v("EffectiveBlockChance") > 0 then add("Block Chance", fmt_pct_d(v("EffectiveBlockChance"))) end
+  if v("EffectiveSpellBlockChance") > 0 then add("Spell Block Chance", fmt_pct_d(v("EffectiveSpellBlockChance"))) end
+  if v("AttackDodgeChance") > 0 then add("Attack Dodge Chance", fmt_pct_d(v("AttackDodgeChance"))) end
+  if v("SpellDodgeChance") > 0 then add("Spell Dodge Chance", fmt_pct_d(v("SpellDodgeChance"))) end
+  if v("EffectiveSpellSuppressionChance") > 0 then add("Spell Suppression Chance", fmt_pct_d(v("EffectiveSpellSuppressionChance"))) end
+  sep()
+
+  -- === Group 14: Resistances (always show) ===
+  local function resistStr(val, overcap)
+    if overcap and overcap > 0 then
+      return string.format("%d%% (+%d%%)", val, overcap)
+    end
+    return string.format("%d%%", val)
+  end
+  add("Fire Resistance", resistStr(v("FireResist"), v("FireResistOverCap")), FIRE)
+  add("Cold Resistance", resistStr(v("ColdResist"), v("ColdResistOverCap")), COLD)
+  add("Lightning Resistance", resistStr(v("LightningResist"), v("LightningResistOverCap")), LIGHT)
+  if not o.ChaosInoculation then
+    add("Chaos Resistance", resistStr(v("ChaosResist"), v("ChaosResistOverCap")), CHAOS)
+  else
+    add("Chaos Resistance", "Immune", CHAOS)
+  end
+  sep()
+
+  -- === Group 15: Movement Speed (always show) ===
+  if v("EffectiveMovementSpeedMod") ~= 0 then
+    add("Movement Speed Modifier", fmt_mod_1f(v("EffectiveMovementSpeedMod")))
+  end
+  sep()
+
+  -- === Group 16: Full DPS ===
+  if v("FullDPS") > 0 then add("Full DPS", fmt_1f(v("FullDPS")), CURRENCY) end
+
+  -- Close final group
+  sep()
+
+  return dkjson.encode({ groups = groups })
+end
+
 -- Get structured calc display using PoB's CalcSections and CheckFlag visibility
 function pobWebGetCalcDisplay(jsonArg)
   if not build or not build.calcsTab then
     return dkjson.encode({ sections = {} })
+  end
+  -- Ensure calcsEnv is populated (getSkillsData's OnFrame loop may leave it nil)
+  local skipCheckFlag = false
+  if not build.calcsTab.calcsEnv then
+    -- Try BuildOutput (runs MAIN then CALCS mode)
+    pcall(function() build.calcsTab:BuildOutput() end)
+    if not build.calcsTab.calcsEnv then
+      -- CALCS mode crashed (e.g. CalcDefence.lua NaN) — skip section filtering
+      skipCheckFlag = true
+    end
   end
   local output = build.calcsTab.mainOutput
   if not output then
@@ -745,8 +1003,12 @@ function pobWebGetCalcDisplay(jsonArg)
   local sections = {}
 
   for _, section in ipairs(build.calcsTab.sectionList) do
-    local sOk, sVisible = pcall(build.calcsTab.CheckFlag, build.calcsTab, section)
-    if sOk and sVisible then
+    local sVisible = true
+    if not skipCheckFlag then
+      local sOk, sv = pcall(build.calcsTab.CheckFlag, build.calcsTab, section)
+      sVisible = sOk and sv
+    end
+    if sVisible then
       local sData = { id = section.id, group = section.group, subsections = {} }
 
       -- subSection[i] = { label = "...", data = { flag = "...", [1]=row, [2]=row, ... } }
@@ -755,12 +1017,18 @@ function pobWebGetCalcDisplay(jsonArg)
         local dataBlock = sub.data
         if not dataBlock then goto continue_sub end
 
-        local subOk, subVisible = pcall(build.calcsTab.CheckFlag, build.calcsTab, dataBlock)
-        if not (subOk and subVisible) then goto continue_sub end
+        if not skipCheckFlag then
+          local subOk, subVisible = pcall(build.calcsTab.CheckFlag, build.calcsTab, dataBlock)
+          if not (subOk and subVisible) then goto continue_sub end
+        end
 
         for _, rowData in ipairs(dataBlock) do
-          local rOk, rVisible = pcall(build.calcsTab.CheckFlag, build.calcsTab, rowData)
-          if rOk and rVisible and rowData.label then
+          local rVisible = true
+          if not skipCheckFlag then
+            local rOk, rv = pcall(build.calcsTab.CheckFlag, build.calcsTab, rowData)
+            rVisible = rOk and rv
+          end
+          if rVisible and rowData.label then
             -- Strip PoB color codes (^7, ^xRRGGBB)
             local cleanLabel = rowData.label:gsub("%^%d",""):gsub("%^x%x%x%x%x%x%x","")
             local row = { label = cleanLabel, values = {} }
@@ -1094,6 +1362,22 @@ self.onmessage = async (e: MessageEvent<CalcRequest & { _id?: string }>) => {
       break;
     }
 
+    case "getDisplayStats": {
+      if (!initialized) {
+        respond(_id, { type: "displayStats", data: [], error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebGetDisplayStats", "{}");
+        const parsed = JSON.parse(result);
+        respond(_id, { type: "displayStats", data: parsed.groups || [] });
+      } catch (e) {
+        console.error("[PoB] getDisplayStats error:", e);
+        respond(_id, { type: "displayStats", data: [], error: String(e) });
+      }
+      break;
+    }
+
     case "getCalcDisplay": {
       if (!initialized) {
         respond(_id, { type: "calcDisplay", data: [], error: "Engine not initialized" });
@@ -1104,6 +1388,7 @@ self.onmessage = async (e: MessageEvent<CalcRequest & { _id?: string }>) => {
         const parsed = JSON.parse(result);
         respond(_id, { type: "calcDisplay", data: parsed.sections || [] });
       } catch (e) {
+        console.error("[PoB] getCalcDisplay error:", e);
         respond(_id, { type: "calcDisplay", data: [], error: String(e) });
       }
       break;

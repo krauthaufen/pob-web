@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { PobBuild } from "../worker/build-decoder";
-import type { SkillsData, CalcSection, JewelInfo, EquippedItem } from "../worker/calc-api";
+import type { SkillsData, CalcSection, JewelInfo, EquippedItem, DisplayStatGroup } from "../worker/calc-api";
 
 export interface CalcStats {
   // Offence
@@ -78,6 +78,7 @@ interface BuildState {
   skillsData: SkillsData | null;
   defenceStats: DefenceStats | null;
   calcDisplay: CalcSection[] | null;
+  displayStats: DisplayStatGroup[] | null;
   jewelData: Record<string, JewelInfo> | null;
   weaponSetNodes: Record<number, number> | null;
   equippedItems: EquippedItem[] | null;
@@ -97,6 +98,7 @@ interface BuildState {
   setSkillsData: (data: SkillsData) => void;
   setDefenceStats: (data: DefenceStats) => void;
   setCalcDisplay: (data: CalcSection[]) => void;
+  setDisplayStats: (data: DisplayStatGroup[]) => void;
   setJewelData: (data: Record<string, JewelInfo>) => void;
   setWeaponSetNodes: (data: Record<number, number>) => void;
   setEquippedItems: (data: EquippedItem[]) => void;
@@ -124,6 +126,7 @@ export const useBuildStore = create<BuildState>((set) => ({
   skillsData: null,
   defenceStats: null,
   calcDisplay: null,
+  displayStats: null,
   jewelData: null,
   weaponSetNodes: null,
   equippedItems: null,
@@ -149,6 +152,7 @@ export const useBuildStore = create<BuildState>((set) => ({
 
   setDefenceStats: (defenceStats) => set({ defenceStats }),
   setCalcDisplay: (calcDisplay) => set({ calcDisplay }),
+  setDisplayStats: (displayStats) => set({ displayStats }),
   setJewelData: (jewelData) => set({ jewelData }),
   setWeaponSetNodes: (weaponSetNodes) => set({ weaponSetNodes }),
   setEquippedItems: (equippedItems) => set({ equippedItems }),
@@ -177,6 +181,7 @@ export const useBuildStore = create<BuildState>((set) => ({
       skillsData: null,
       defenceStats: null,
       calcDisplay: null,
+      displayStats: null,
       jewelData: null,
       weaponSetNodes: null,
       equippedItems: null,

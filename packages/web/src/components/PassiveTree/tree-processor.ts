@@ -160,7 +160,7 @@ export function processTree(data: TreeData, activeAscendancy?: string): {
     }
     // Offset nodes to center, scale down to fit background circle
     const maxDist = bgW;
-    const ascScale = 0.75;
+    const ascScale = 0.8025;
     for (const node of nodes.values()) {
       if (node.ascendancy === activeAscendancy) {
         node.x = (node.x - cx) * ascScale;

@@ -17,6 +17,7 @@ export type CalcRequest =
   | { type: "deallocNode"; nodeId: number }
   | { type: "calcNodeImpact"; nodeId: number }
   | { type: "getNodePower"; stat: "dps" | "life" | "es" }
+  | { type: "getDisplayStats" }
   | { type: "exec"; code: string };
 
 /** Per-skill DPS entry from PoB's calcFullDPS (output.SkillDPS) */
@@ -115,6 +116,10 @@ export interface EquippedItem {
   runeMods: string[];
 }
 
+/** PoB sidebar display stat (from BuildDisplayStats.lua) */
+export interface DisplayStat { label: string; value: string; color?: string; }
+export type DisplayStatGroup = DisplayStat[];
+
 /** Response from allocNode / deallocNode */
 export interface AllocResult {
   success: boolean;
@@ -132,6 +137,7 @@ export type CalcResponse =
   | { type: "allocNode"; data: AllocResult; error?: string }
   | { type: "deallocNode"; data: AllocResult; error?: string }
   | { type: "calcDisplay"; data: CalcSection[]; error?: string }
+  | { type: "displayStats"; data: DisplayStatGroup[]; error?: string }
   | { type: "jewels"; data: Record<string, JewelInfo>; error?: string }
   | { type: "weaponSetNodes"; data: Record<string, number>; error?: string }
   | { type: "items"; data: { items: EquippedItem[] }; error?: string }

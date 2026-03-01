@@ -24,6 +24,7 @@ export function App() {
   const setSkillsData = useBuildStore((s) => s.setSkillsData);
   const setDefenceStats = useBuildStore((s) => s.setDefenceStats);
   const setCalcDisplay = useBuildStore((s) => s.setCalcDisplay);
+  const setDisplayStats = useBuildStore((s) => s.setDisplayStats);
   const setJewelData = useBuildStore((s) => s.setJewelData);
   const setWeaponSetNodes = useBuildStore((s) => s.setWeaponSetNodes);
   const setEquippedItems = useBuildStore((s) => s.setEquippedItems);
@@ -62,11 +63,12 @@ export function App() {
     setCalcStatus("calculating");
 
     // Fetch stats, skills, defence, calcDisplay, jewels, weapon set nodes, and items independently
-    const [statsResult, skillsResult, defenceResult, displayResult, jewelsResult, wsResult, itemsResult] = await Promise.allSettled([
+    const [statsResult, skillsResult, defenceResult, displayResult, displayStatsResult, jewelsResult, wsResult, itemsResult] = await Promise.allSettled([
       client.getStats(),
       client.getSkills(),
       client.getDefence(),
       client.getCalcDisplay(),
+      client.getDisplayStats(),
       client.getJewels(),
       client.getWeaponSetNodes(),
       client.getItems(),
@@ -82,6 +84,9 @@ export function App() {
 
     if (displayResult.status === "fulfilled") setCalcDisplay(displayResult.value);
     else console.error("[PoB] getCalcDisplay failed:", displayResult.reason);
+
+    if (displayStatsResult.status === "fulfilled") setDisplayStats(displayStatsResult.value);
+    else console.error("[PoB] getDisplayStats failed:", displayStatsResult.reason);
 
     if (jewelsResult.status === "fulfilled") setJewelData(jewelsResult.value);
     else console.error("[PoB] getJewels failed:", jewelsResult.reason);
@@ -157,7 +162,7 @@ export function App() {
       movementSpeed: defence.MovementSpeedMod || 0,
     };
     setDefenceStats(d);
-  }, [setCalcStatus, setStats, setSkillsData, setDefenceStats, setCalcDisplay, setJewelData, setWeaponSetNodes, setEquippedItems]);
+  }, [setCalcStatus, setStats, setSkillsData, setDefenceStats, setCalcDisplay, setDisplayStats, setJewelData, setWeaponSetNodes, setEquippedItems]);
 
   // Auto-init engine on mount
   useEffect(() => {

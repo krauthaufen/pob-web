@@ -1,51 +1,30 @@
 import { useBuildStore } from "@/store/build-store";
-import type { CalcSection, CalcStatRow } from "@/worker/calc-api";
+import type { DisplayStat, DisplayStatGroup } from "@/worker/calc-api";
 
-function formatValue(value: number, decimals: number): string {
-  if (Math.abs(value) >= 1000000) return `${(value / 1000000).toFixed(2)}M`;
-  if (Math.abs(value) >= 1000) return `${(value / 1000).toFixed(1)}k`;
-  if (decimals > 0) return value.toFixed(decimals);
-  return String(Math.round(value));
-}
-
-function CalcRow({ row }: { row: CalcStatRow }) {
-  // Show first value prominently (primary column)
-  const primary = row.values[0];
-  if (!primary) return null;
+function StatRow({ stat }: { stat: DisplayStat }) {
   return (
     <div className="flex justify-between py-0.5 text-xs">
-      <span className="text-gray-400">{row.label}</span>
-      <span className="text-poe-text">
-        {formatValue(primary.value, primary.decimals)}
-        {row.values.length > 1 && row.values.slice(1).map((v, i) => (
-          <span key={i} className="ml-1 text-gray-500">
-            ({formatValue(v.value, v.decimals)})
-          </span>
-        ))}
+      <span className="text-gray-400">{stat.label}</span>
+      <span style={stat.color ? { color: stat.color } : undefined} className={stat.color ? "font-medium" : "text-poe-text"}>
+        {stat.value}
       </span>
     </div>
   );
 }
 
-function CalcSectionView({ section }: { section: CalcSection }) {
+function StatGroup({ group }: { group: DisplayStatGroup }) {
+  if (group.length === 0) return null;
   return (
-    <>
-      {section.subsections.map((sub, i) => (
-        <div key={i}>
-          <h3 className="mb-1 border-b border-poe-border pb-1 text-xs font-semibold uppercase tracking-wider text-gray-300">
-            {sub.label}
-          </h3>
-          {sub.stats.map((row, j) => (
-            <CalcRow key={j} row={row} />
-          ))}
-        </div>
+    <div className="border-b border-poe-border pb-2">
+      {group.map((stat, i) => (
+        <StatRow key={i} stat={stat} />
       ))}
-    </>
+    </div>
   );
 }
 
 export function StatsPanel() {
-  const { calcDisplay, build, calcStatus } = useBuildStore();
+  const { displayStats, build, calcStatus } = useBuildStore();
 
   if (!build) {
     return (
@@ -63,14 +42,10 @@ export function StatsPanel() {
     );
   }
 
-  // Group 1 = Offence, Group 2 = Pools (Life/Mana/ES/Spirit)
-  const offenceSections = calcDisplay?.filter(s => s.group === 1) ?? [];
-  const poolSections = calcDisplay?.filter(s => s.group === 2) ?? [];
-
   return (
-    <div className="flex flex-col gap-4 p-4">
+    <div className="flex flex-col gap-2 p-4">
       {/* Build info header */}
-      <div>
+      <div className="pb-2 border-b border-poe-border">
         <h2 className="text-sm font-semibold text-poe-accent">
           {build.ascendancy || build.className}
         </h2>
@@ -79,14 +54,9 @@ export function StatsPanel() {
         </p>
       </div>
 
-      {/* Offence sections from CalcDisplay */}
-      {offenceSections.map((section) => (
-        <CalcSectionView key={section.id} section={section} />
-      ))}
-
-      {/* Pool sections from CalcDisplay */}
-      {poolSections.map((section) => (
-        <CalcSectionView key={section.id} section={section} />
+      {/* Display stat groups from PoB sidebar */}
+      {displayStats?.map((group, i) => (
+        <StatGroup key={i} group={group} />
       ))}
 
       {/* Items summary */}

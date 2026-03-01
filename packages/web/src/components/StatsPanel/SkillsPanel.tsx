@@ -57,7 +57,7 @@ interface SkillsPanelProps {
 }
 
 export function SkillsPanel({ calcClient }: SkillsPanelProps) {
-  const { skillsData, build, calcStatus, calcDisplay, setCalcDisplay, selectedSkillGroup, setSelectedSkillGroup } = useBuildStore();
+  const { skillsData, build, calcStatus, calcDisplay, setCalcDisplay, setDisplayStats, selectedSkillGroup, setSelectedSkillGroup } = useBuildStore();
   const [mainStats, setMainStats] = useState<MainSkillStats | null>(null);
   const [skillDps, setSkillDps] = useState<SkillDpsEntry[]>([]);
   const [fullDps, setFullDps] = useState(0);
@@ -84,12 +84,13 @@ export function SkillsPanel({ calcClient }: SkillsPanelProps) {
       if (result.display) {
         setCalcDisplay(result.display);
       }
+      calcClient.getDisplayStats().then(setDisplayStats).catch(() => {});
     } catch (e) {
       console.error("[PoB] Switch skill failed:", e);
     } finally {
       setSwitching(false);
     }
-  }, [calcClient, switching, setCalcDisplay, setSelectedSkillGroup]);
+  }, [calcClient, switching, setCalcDisplay, setDisplayStats, setSelectedSkillGroup]);
 
   if (!build) {
     return (
