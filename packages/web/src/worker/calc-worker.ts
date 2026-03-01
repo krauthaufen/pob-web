@@ -622,6 +622,18 @@ function pobWebAllocNode(jsonArg)
   return dkjson.encode({ success = true, allocatedNodes = getAllocatedNodeList(), display = displayData and displayData.sections or {} })
 end
 
+-- Export current build as XML string using PoB's SaveDB
+function pobWebExportBuild(jsonArg)
+  if not build then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+  local ok, xml = pcall(function() return build:SaveDB("code") end)
+  if not ok then
+    return dkjson.encode({ error = "SaveDB failed: " .. tostring(xml) })
+  end
+  return dkjson.encode({ xml = xml })
+end
+
 -- Deallocate a node using PoB's PassiveSpec:DeallocNode
 function pobWebDeallocNode(jsonArg)
   if not build or not build.spec then
@@ -1512,6 +1524,25 @@ self.onmessage = async (e: MessageEvent<CalcRequest & { _id?: string }>) => {
         respond(_id, { type: "nodePower", data });
       } catch (e) {
         respond(_id, { type: "nodePower", data: {}, error: String(e) });
+      }
+      break;
+    }
+
+    case "exportBuild": {
+      if (!initialized) {
+        respond(_id, { type: "exportBuild", data: { code: "" }, error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebExportBuild", "{}");
+        const data = JSON.parse(result);
+        if (data.error) {
+          respond(_id, { type: "exportBuild", data: { code: "" }, error: data.error });
+        } else {
+          respond(_id, { type: "exportBuild", data: { code: data.xml } });
+        }
+      } catch (e) {
+        respond(_id, { type: "exportBuild", data: { code: "" }, error: String(e) });
       }
       break;
     }

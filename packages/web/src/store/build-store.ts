@@ -70,6 +70,7 @@ interface BuildState {
   // Build data
   build: PobBuild | null;
   importCode: string;
+  originalImportCode: string;
 
   // Calc engine state
   calcStatus: CalcStatus;
@@ -93,6 +94,7 @@ interface BuildState {
   // Actions
   setBuild: (build: PobBuild) => void;
   setImportCode: (code: string) => void;
+  setOriginalImportCode: (code: string) => void;
   setCalcStatus: (status: CalcStatus, error?: string) => void;
   setStats: (stats: CalcStats) => void;
   setSkillsData: (data: SkillsData) => void;
@@ -120,6 +122,7 @@ const emptyStats: CalcStats = {
 export const useBuildStore = create<BuildState>((set) => ({
   build: null,
   importCode: "",
+  originalImportCode: "",
   calcStatus: "idle",
   calcError: null,
   stats: null,
@@ -145,6 +148,7 @@ export const useBuildStore = create<BuildState>((set) => ({
     set({ importCode });
     try { sessionStorage.setItem("pob-import-code", importCode); } catch {}
   },
+  setOriginalImportCode: (originalImportCode) => set({ originalImportCode }),
 
   setCalcStatus: (calcStatus, error) =>
     set({ calcStatus, calcError: error ?? null }),
@@ -178,6 +182,7 @@ export const useBuildStore = create<BuildState>((set) => ({
     set({
       build: null,
       importCode: "",
+      originalImportCode: "",
       calcStatus: "idle",
       calcError: null,
       stats: emptyStats,

@@ -232,6 +232,7 @@ export function App() {
         const parsed = parseBuildXml(xml);
         useBuildStore.getState().setBuild(parsed);
         useBuildStore.getState().setImportCode(code);
+        useBuildStore.getState().setOriginalImportCode(code);
       } catch (e) {
         console.error("Auto-import failed:", e);
       }

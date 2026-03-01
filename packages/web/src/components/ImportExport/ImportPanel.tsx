@@ -15,14 +15,15 @@ export function ImportPanel() {
   });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const { setBuild, setImportCode, build } = useBuildStore();
+  const { setBuild, setImportCode, setOriginalImportCode, importCode: currentCode, originalImportCode, build } = useBuildStore();
 
-  const importCode = useCallback((code: string) => {
+  const doImport = useCallback((code: string) => {
     const xml = decodeBuildCode(code);
     const parsed = parseBuildXml(xml);
     setBuild(parsed);
     setImportCode(code);
-  }, [setBuild, setImportCode]);
+    setOriginalImportCode(code);
+  }, [setBuild, setImportCode, setOriginalImportCode]);
 
   const handleImport = useCallback(async () => {
     setError(null);
@@ -33,7 +34,7 @@ export function ImportPanel() {
       setLoading(true);
       try {
         const code = await fetchPoeNinjaBuild(ninjaUrl.account, ninjaUrl.character);
-        importCode(code);
+        doImport(code);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to fetch from poe.ninja");
       } finally {
@@ -44,11 +45,11 @@ export function ImportPanel() {
 
     // Otherwise treat as raw PoB code
     try {
-      importCode(input);
+      doImport(input);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to decode build");
     }
-  }, [input, importCode]);
+  }, [input, doImport]);
 
   return (
     <div className="flex flex-col gap-3 p-4">
@@ -65,7 +66,7 @@ export function ImportPanel() {
           if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) handleImport();
         }}
       />
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         <button
           className="rounded bg-poe-accent px-4 py-2 text-sm font-medium text-white transition hover:brightness-110 disabled:opacity-50"
           onClick={handleImport}
@@ -73,12 +74,23 @@ export function ImportPanel() {
         >
           {loading ? "Fetching..." : "Import"}
         </button>
-        {build && (
-          <span className="text-xs text-gray-400">
-            {build.ascendancy || build.className} Lv{build.level} — {build.nodes.length} nodes
-          </span>
+        {build && originalImportCode && currentCode !== originalImportCode && (
+          <button
+            className="rounded border border-poe-border px-3 py-2 text-sm text-gray-400 transition hover:border-poe-accent hover:text-poe-text"
+            onClick={() => { setInput(originalImportCode); doImport(originalImportCode); }}
+          >
+            Revert
+          </button>
         )}
       </div>
+      {build && (
+        <p className="text-xs text-gray-400">
+          {build.ascendancy || build.className} Lv{build.level} — {build.nodes.length} nodes
+          {currentCode !== originalImportCode && (
+            <span className="ml-1 text-yellow-400">(modified)</span>
+          )}
+        </p>
+      )}
       {error && (
         <p className="text-xs text-red-400">{error}</p>
       )}

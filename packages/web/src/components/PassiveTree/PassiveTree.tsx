@@ -6,6 +6,7 @@ import type { TreeData } from "./tree-types";
 import type { NodeImpact } from "@/worker/calc-api";
 import type { CalcClient } from "@/worker/calc-client";
 import { processTree } from "./tree-processor";
+import { encodeBuildCode } from "@/worker/build-decoder";
 import { NodeDetailPanel } from "./NodeDetailPanel";
 import {
   loadTreeAtlases,
@@ -113,6 +114,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
   const setHoveredNode = useBuildStore((s) => s.setHoveredNode);
   const setCalcDisplay = useBuildStore((s) => s.setCalcDisplay);
   const setDisplayStats = useBuildStore((s) => s.setDisplayStats);
+  const setImportCode = useBuildStore((s) => s.setImportCode);
   const jewelData = useBuildStore((s) => s.jewelData);
   const weaponSetNodes = useBuildStore((s) => s.weaponSetNodes);
   const buildAscendancy = useBuildStore((s) => s.build?.ascendancy);
@@ -800,6 +802,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
         setAllocatedNodes(result.allocatedNodes);
         if (result.display) setCalcDisplay(result.display);
         calcClient.getDisplayStats().then(setDisplayStats).catch(() => {});
+        calcClient.exportBuild().then((xml) => { if (xml) setImportCode(encodeBuildCode(xml)); }).catch(() => {});
       }
     } catch (e) {
       console.error("[PoB] allocNode failed:", e);
@@ -809,7 +812,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       setSelectedNode(null);
       setNodeImpact(null);
     }
-  }, [selectedNode, calcClient, allocating, setAllocatedNodes, setCalcDisplay, setDisplayStats]);
+  }, [selectedNode, calcClient, allocating, setAllocatedNodes, setCalcDisplay, setDisplayStats, setImportCode]);
 
   const handleDeallocate = useCallback(async () => {
     if (!selectedNode || !calcClient || allocating) return;
@@ -820,6 +823,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
         setAllocatedNodes(result.allocatedNodes);
         if (result.display) setCalcDisplay(result.display);
         calcClient.getDisplayStats().then(setDisplayStats).catch(() => {});
+        calcClient.exportBuild().then((xml) => { if (xml) setImportCode(encodeBuildCode(xml)); }).catch(() => {});
       }
     } catch (e) {
       console.error("[PoB] deallocNode failed:", e);
@@ -829,7 +833,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       setSelectedNode(null);
       setNodeImpact(null);
     }
-  }, [selectedNode, calcClient, allocating, setAllocatedNodes, setCalcDisplay, setDisplayStats]);
+  }, [selectedNode, calcClient, allocating, setAllocatedNodes, setCalcDisplay, setDisplayStats, setImportCode]);
 
   return (
     <div className="relative h-full w-full">

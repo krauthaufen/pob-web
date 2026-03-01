@@ -18,6 +18,7 @@ export type CalcRequest =
   | { type: "calcNodeImpact"; nodeId: number }
   | { type: "getNodePower"; stat: "dps" | "life" | "es" }
   | { type: "getDisplayStats" }
+  | { type: "exportBuild" }
   | { type: "exec"; code: string };
 
 /** Per-skill DPS entry from PoB's calcFullDPS (output.SkillDPS) */
@@ -143,6 +144,7 @@ export type CalcResponse =
   | { type: "items"; data: { items: EquippedItem[] }; error?: string }
   | { type: "nodePower"; data: Record<number, number>; error?: string }
   | { type: "nodeImpact"; data: NodeImpact; error?: string }
+  | { type: "exportBuild"; data: { code: string }; error?: string }
   | { type: "error"; message: string }
   | { type: "log"; message: string }
   | { type: "exec"; result?: string; error?: string };

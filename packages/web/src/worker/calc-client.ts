@@ -129,6 +129,12 @@ export class CalcClient {
     return {};
   }
 
+  async exportBuild(): Promise<string> {
+    const res = await this.send({ type: "exportBuild" });
+    if (res.type === "exportBuild") return res.data.code;
+    return "";
+  }
+
   async exec(code: string): Promise<string | undefined> {
     const res = await this.send({ type: "exec", code });
     if (res.type === "exec") return res.result ?? res.error;
