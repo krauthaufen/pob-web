@@ -98,6 +98,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
   const searchGfxRef = useRef<Graphics | null>(null);
   const searchMatchesRef = useRef<Array<{ x: number; y: number; r: number }>>([]);
   const connectionsDataRef = useRef<Array<{ from: string; to: string }>>([]);
+  const boundsRef = useRef<{ minX: number; minY: number; maxX: number; maxY: number } | null>(null);
   const [appReady, setAppReady] = useState(false);
   const [tooltip, setTooltip] = useState<{
     x: number; y: number; node: ProcessedNode;
@@ -429,6 +430,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       const { nodes, connections, bounds } = processTree(treeData!, activeAsc);
       nodesRef.current = nodes;
       connectionsDataRef.current = connections;
+      boundsRef.current = bounds;
 
       const treeWidth = bounds.maxX - bounds.minX;
       const treeHeight = bounds.maxY - bounds.minY;
@@ -563,6 +565,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
 
         nodeContainer.x = node.x;
         nodeContainer.y = node.y;
+        nodeContainer.alpha = isAllocated ? 1 : 0.55;
         nodeContainer.visible = isUnlockedInit(node);
         nodeContainer.eventMode = "static";
         nodeContainer.cursor = "pointer";
@@ -619,6 +622,27 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
 
     return () => { cancelled = true; };
   }, [appReady, treeData, setHoveredNode, createNodeVisual, buildAscendancy]);
+
+  // Reset viewport when requested via store
+  const viewportResetCounter = useBuildStore((s) => s.viewportResetCounter);
+  useEffect(() => {
+    if (viewportResetCounter === 0) return; // skip initial
+    const app = appRef.current;
+    const world = worldRef.current;
+    const bounds = boundsRef.current;
+    if (!app || !world || !bounds) return;
+    const treeWidth = bounds.maxX - bounds.minX;
+    const treeHeight = bounds.maxY - bounds.minY;
+    const screenW = app.screen.width;
+    const screenH = app.screen.height;
+    const padding = 50;
+    const fitScale = Math.min((screenW - padding * 2) / treeWidth, (screenH - padding * 2) / treeHeight);
+    const cx = (bounds.minX + bounds.maxX) / 2;
+    const cy = (bounds.minY + bounds.maxY) / 2;
+    world.scale.set(fitScale);
+    world.x = screenW / 2 - cx * fitScale;
+    world.y = screenH / 2 - cy * fitScale;
+  }, [viewportResetCounter]);
 
   // Calculate node impact when a node is selected
   useEffect(() => {
@@ -726,6 +750,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       if (!allocChanged && !jewelChanged) continue;
       (container as any).__allocated = isAllocated;
       (container as any).__jewelInfo = jiKey;
+      container.alpha = isAllocated ? 1 : 0.55;
 
       container.removeChildren();
       const newVisual = createNodeVisual(node, isAllocated, atlases, ji);

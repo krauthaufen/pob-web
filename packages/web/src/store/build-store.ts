@@ -90,6 +90,7 @@ interface BuildState {
   // Passive tree
   allocatedNodes: Set<number>;
   hoveredNode: number | null;
+  viewportResetCounter: number;
 
   // Actions
   setBuild: (build: PobBuild) => void;
@@ -108,6 +109,7 @@ interface BuildState {
   toggleNode: (nodeId: number) => void;
   setAllocatedNodes: (nodes: number[]) => void;
   setHoveredNode: (nodeId: number | null) => void;
+  resetViewport: () => void;
   reset: () => void;
 }
 
@@ -136,6 +138,7 @@ export const useBuildStore = create<BuildState>((set) => ({
   selectedSkillGroup: 1,
   allocatedNodes: new Set(),
   hoveredNode: null,
+  viewportResetCounter: 0,
 
   setBuild: (build) =>
     set({
@@ -178,6 +181,7 @@ export const useBuildStore = create<BuildState>((set) => ({
 
   setAllocatedNodes: (nodes) => set({ allocatedNodes: new Set(nodes) }),
   setHoveredNode: (hoveredNode) => set({ hoveredNode }),
+  resetViewport: () => set((state) => ({ viewportResetCounter: state.viewportResetCounter + 1 })),
   reset: () =>
     set({
       build: null,

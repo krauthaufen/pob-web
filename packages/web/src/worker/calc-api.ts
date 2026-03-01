@@ -132,7 +132,7 @@ export interface AllocResult {
 
 export type CalcResponse =
   | { type: "init"; success: boolean; error?: string }
-  | { type: "loadBuild"; success: boolean; error?: string }
+  | { type: "loadBuild"; success: boolean; error?: string; allocatedNodes?: number[] }
   | { type: "stats"; data: Record<string, number>; error?: string }
   | { type: "skills"; data: SkillsData; error?: string }
   | { type: "defence"; data: Record<string, number>; error?: string }

@@ -263,6 +263,32 @@ end
 
 -- JSON-callable functions for bridge_call_json
 local dkjson = require("dkjson")
+
+-- Helper: collect all allocated node hashes from the spec + granted passives
+local function getAllocatedNodeList()
+  local nodes = {}
+  local seen = {}
+  -- Primary source: spec.allocNodes (tree-allocated nodes)
+  if build and build.spec and build.spec.allocNodes then
+    for hash, _ in pairs(build.spec.allocNodes) do
+      if type(hash) == "number" then
+        nodes[#nodes + 1] = hash
+        seen[hash] = true
+      end
+    end
+  end
+  -- Secondary: mainEnv.allocNodes includes granted passives (anoints etc.)
+  if build and build.calcsTab and build.calcsTab.mainEnv and build.calcsTab.mainEnv.allocNodes then
+    for nodeId, _ in pairs(build.calcsTab.mainEnv.allocNodes) do
+      if type(nodeId) == "number" and not seen[nodeId] then
+        nodes[#nodes + 1] = nodeId
+        seen[nodeId] = true
+      end
+    end
+  end
+  return nodes
+end
+
 function pobWebLoadBuild(jsonArg)
   local args = dkjson.decode(jsonArg)
   if not args or not args.xml then
@@ -306,7 +332,8 @@ function pobWebLoadBuild(jsonArg)
     end
   end
 
-  return dkjson.encode({ success = true })
+  local allocList = getAllocatedNodeList()
+  return dkjson.encode({ success = true, allocatedNodes = allocList })
 end
 
 function pobWebGetStats(jsonArg)
@@ -335,6 +362,7 @@ function pobWebGetStats(jsonArg)
       stats[key] = output[key]
     end
   end
+  stats._allocatedNodes = getAllocatedNodeList()
   return dkjson.encode(stats)
 end
 
@@ -571,19 +599,6 @@ function getDataRef()
     return data
   end
   return nil
-end
-
--- Helper: collect all allocated node hashes from the spec
-local function getAllocatedNodeList()
-  local nodes = {}
-  if build and build.spec and build.spec.allocNodes then
-    for hash, _ in pairs(build.spec.allocNodes) do
-      if type(hash) == "number" then
-        nodes[#nodes + 1] = hash
-      end
-    end
-  end
-  return nodes
 end
 
 -- Allocate a node using PoB's PassiveSpec:AllocNode
@@ -1331,7 +1346,7 @@ self.onmessage = async (e: MessageEvent<CalcRequest & { _id?: string }>) => {
       try {
         const result = bridge_call_json("pobWebLoadBuild", JSON.stringify({ xml: msg.xml }));
         const parsed = JSON.parse(result);
-        respond(_id, { type: "loadBuild", success: !parsed.error, error: parsed.error });
+        respond(_id, { type: "loadBuild", success: !parsed.error, error: parsed.error, allocatedNodes: parsed.allocatedNodes });
       } catch (e) {
         respond(_id, { type: "loadBuild", success: false, error: String(e) });
       }

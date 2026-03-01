@@ -45,9 +45,9 @@ export class CalcClient {
     return false;
   }
 
-  async loadBuild(xml: string): Promise<{ success: boolean; error?: string }> {
+  async loadBuild(xml: string): Promise<{ success: boolean; error?: string; allocatedNodes?: number[] }> {
     const res = await this.send({ type: "loadBuild", xml });
-    if (res.type === "loadBuild") return { success: res.success, error: res.error };
+    if (res.type === "loadBuild") return { success: res.success, error: res.error, allocatedNodes: res.allocatedNodes };
     return { success: false, error: "unexpected response" };
   }
 

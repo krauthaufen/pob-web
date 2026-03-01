@@ -97,9 +97,14 @@ export function App() {
       client.getItems(),
     ]);
 
-    const stats = statsResult.status === "fulfilled" ? statsResult.value : {};
+    const stats = statsResult.status === "fulfilled" ? statsResult.value : {} as any;
     const skills = skillsResult.status === "fulfilled" ? skillsResult.value : null;
     const defence = defenceResult.status === "fulfilled" ? defenceResult.value : {};
+
+    // Update allocated nodes from engine (includes anointed/granted passives)
+    if (stats._allocatedNodes) {
+      useBuildStore.getState().setAllocatedNodes(stats._allocatedNodes);
+    }
 
     if (statsResult.status === "rejected") console.error("[PoB] getStats failed:", statsResult.reason);
     if (skillsResult.status === "rejected") console.error("[PoB] getSkills failed:", skillsResult.reason);
@@ -319,6 +324,7 @@ export function App() {
               setTreeSearch("");
               setSidePanel("import");
               setMenuOpen(false);
+              useBuildStore.getState().resetViewport();
             }}
             title="Reset view"
           >
