@@ -738,6 +738,19 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
     const jrGfx = jewelRadiusGfxRef.current;
     if (jrGfx) {
       jrGfx.clear();
+      // Lightsaber glow: wide soft bloom → medium glow → bright core
+      const glowRing = (cx: number, cy: number, r: number) => {
+        jrGfx.circle(cx, cy, r);
+        jrGfx.stroke({ width: 30, color: 0x2266cc, alpha: 0.04 });
+        jrGfx.circle(cx, cy, r);
+        jrGfx.stroke({ width: 18, color: 0x3388dd, alpha: 0.08 });
+        jrGfx.circle(cx, cy, r);
+        jrGfx.stroke({ width: 10, color: 0x55aaff, alpha: 0.2 });
+        jrGfx.circle(cx, cy, r);
+        jrGfx.stroke({ width: 4, color: 0xaaddff, alpha: 0.6 });
+        jrGfx.circle(cx, cy, r);
+        jrGfx.stroke({ width: 1.5, color: 0xeef8ff, alpha: 0.9 });
+      };
       for (const [, node] of nodes) {
         if (node.type !== "jewel") continue;
         const ji = jewelData?.[String(node.hash)];
@@ -745,23 +758,13 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
         const { inner, outer } = ji.radius;
 
         if (ji.radiusCenters && ji.radiusCenters.length > 0) {
-          // From Nothing: draw radius around each keystone center
           for (const center of ji.radiusCenters) {
-            jrGfx.circle(center.x, center.y, outer);
-            jrGfx.stroke({ width: 2, color: 0x4488cc, alpha: 0.5 });
-            if (inner > 0) {
-              jrGfx.circle(center.x, center.y, inner);
-              jrGfx.stroke({ width: 2, color: 0x4488cc, alpha: 0.5 });
-            }
+            glowRing(center.x, center.y, outer);
+            if (inner > 0) glowRing(center.x, center.y, inner);
           }
         } else {
-          // Normal jewel: draw radius around the socket
-          jrGfx.circle(node.x, node.y, outer);
-          jrGfx.stroke({ width: 2, color: 0x4488cc, alpha: 0.5 });
-          if (inner > 0) {
-            jrGfx.circle(node.x, node.y, inner);
-            jrGfx.stroke({ width: 2, color: 0x4488cc, alpha: 0.5 });
-          }
+          glowRing(node.x, node.y, outer);
+          if (inner > 0) glowRing(node.x, node.y, inner);
         }
       }
     }
