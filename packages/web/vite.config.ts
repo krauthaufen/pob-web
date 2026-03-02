@@ -17,7 +17,7 @@ export default defineConfig({
   },
   server: {
     host: "0.0.0.0",
-    allowedHosts: ["pob.haaser.me"],
+    allowedHosts: ["pob.haaser.me", "pob.awx.at"],
     hmr: false,
     proxy: {
       "/poe-ninja-api": {
