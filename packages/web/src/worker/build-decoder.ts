@@ -31,6 +31,73 @@ export function parsePoeNinjaUrl(input: string): { account: string; character: s
  * Fetch a PoB build code from a poe.ninja character profile.
  * Uses a proxy in dev (/poe-ninja-api) to avoid CORS.
  */
+// Catalyst type name → PoB catalyst list index (1-based, matching Item.lua catalystList)
+const CATALYST_MAP: Record<string, number> = {
+  "Life Modifiers": 1, "Mana Modifiers": 2, "Defense Modifiers": 3,
+  "Physical": 4, "Fire Modifiers": 5, "Cold Modifiers": 6,
+  "Lightning Modifiers": 7, "Chaos Modifiers": 8, "Attack Modifiers": 9,
+  "Caster Modifiers": 10, "Speed Modifiers": 11, "Attribute Modifiers": 12,
+};
+const CATALYST_NAMES = [
+  "", "Flesh", "Neural", "Carapace", "Uul-Netol's", "Xoph's",
+  "Tul's", "Esh's", "Chayula's", "Reaver", "Sibilant", "Skittering", "Adaptive",
+];
+
+/** Extract catalyst quality info from poe.ninja item properties */
+function extractCatalystPatches(items: any[]): Map<string, { catalyst: string; quality: number }> {
+  const patches = new Map<string, { catalyst: string; quality: number }>();
+  for (const entry of items) {
+    const item = entry.itemData;
+    if (!item?.properties) continue;
+    for (const prop of item.properties) {
+      const m = prop.name?.match(/^Quality \((.+?)\)$/);
+      if (m && prop.values?.[0]?.[0]) {
+        const typeName = m[1]!;
+        const idx = CATALYST_MAP[typeName];
+        if (idx) {
+          const quality = parseInt(prop.values[0][0].replace(/[+%]/g, ""), 10);
+          if (quality > 0) {
+            // Use item name + base type as key for matching XML items
+            const key = ((item.name || "") + " " + (item.typeLine || "")).trim();
+            patches.set(key, { catalyst: CATALYST_NAMES[idx]!, quality });
+          }
+        }
+      }
+    }
+  }
+  return patches;
+}
+
+/** Inject Catalyst/CatalystQuality lines into PoB XML for items missing them */
+function patchXmlWithCatalysts(xml: string, patches: Map<string, { catalyst: string; quality: number }>): string {
+  if (patches.size === 0) return xml;
+  return xml.replace(/<Item id="[^"]*">([\s\S]*?)<\/Item>/g, (match, content: string) => {
+    if (content.includes("Catalyst:")) return match;
+    const lines = content.trim().split("\n").map((l: string) => l.trim());
+    const rarity = lines[0]?.replace("Rarity: ", "") ?? "";
+    let itemKey = "";
+    let baseName = "";
+    if (rarity === "RARE" || rarity === "UNIQUE") {
+      itemKey = ((lines[1] || "") + " " + (lines[2] || "")).trim();
+      baseName = (lines[2] || "").trim();
+    } else {
+      itemKey = (lines[1] || "").trim();
+      baseName = itemKey;
+    }
+    const patch = patches.get(itemKey);
+    if (!patch || !baseName) return match;
+    // Insert quality + catalyst lines right after the base name line
+    const injection = `\nQuality: ${patch.quality}\nCatalyst: ${patch.catalyst}\nCatalystQuality: ${patch.quality}`;
+    // Find the base name line in the raw content and insert after it
+    const idx = content.indexOf(baseName);
+    if (idx < 0) return match;
+    const endOfLine = content.indexOf("\n", idx);
+    if (endOfLine < 0) return match;
+    const patched = content.slice(0, endOfLine) + injection + content.slice(endOfLine);
+    return match.replace(content, patched);
+  });
+}
+
 export async function fetchPoeNinjaBuild(account: string, character: string): Promise<string> {
   // Both dev (Vite proxy) and prod (nginx proxy) serve /poe-ninja-api
   const base = "/poe-ninja-api";
@@ -44,7 +111,25 @@ export async function fetchPoeNinjaBuild(account: string, character: string): Pr
     throw new Error("Character not found or has no PoB export");
   }
 
-  return data.charModel.pathOfBuildingExport;
+  let code = data.charModel.pathOfBuildingExport as string;
+
+  // Patch catalyst quality into the PoB export if raw item data is available
+  if (data.charModel.items?.length) {
+    try {
+      const patches = extractCatalystPatches(data.charModel.items);
+      if (patches.size > 0) {
+        const xml = decodeBuildCode(code);
+        const patched = patchXmlWithCatalysts(xml, patches);
+        if (patched !== xml) {
+          code = encodeBuildCode(patched);
+        }
+      }
+    } catch {
+      // Non-critical — if patching fails, use original export
+    }
+  }
+
+  return code;
 }
 
 export function decodeBuildCode(code: string): string {
