@@ -329,7 +329,7 @@ function NumericRow({ option, onCommit, dimmed }: { option: ConfigOption; onComm
         value={displayVal}
         placeholder={option.placeholder != null ? String(option.placeholder) : undefined}
         onChange={(e) => handleChange(e.target.value)}
-        onFocus={() => setLocalVal(option.value != null ? String(option.value) : "")}
+        onFocus={(e) => { setLocalVal(option.value != null ? String(option.value) : ""); e.target.select(); }}
         onBlur={handleBlur}
         step={option.type === "float" ? "0.1" : "1"}
       />
