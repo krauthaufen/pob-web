@@ -257,10 +257,6 @@ export function ItemDetailBody({ item }: { item: EquippedItem }) {
           </>
         )}
 
-        {/* Sockets */}
-        {item.sockets != null && item.sockets > 0 && (
-          <StatLine label="Sockets" value={Array(item.sockets).fill("S").join(" ")} color="#c8c8c8" />
-        )}
 
         {/* Requirements */}
         {(item.levelReq > 0 || item.requirements) && (
