@@ -4,6 +4,7 @@ import { StatsPanel } from "@/components/StatsPanel/StatsPanel";
 import { SkillsPanel } from "@/components/StatsPanel/SkillsPanel";
 import { DefencePanel } from "@/components/StatsPanel/DefencePanel";
 import { InventoryPanel } from "@/components/StatsPanel/InventoryPanel";
+import { ConfigPanel } from "@/components/StatsPanel/ConfigPanel";
 import { PassiveTree } from "@/components/PassiveTree/PassiveTree";
 import { useBuildStore } from "@/store/build-store";
 import type { DefenceStats } from "@/store/build-store";
@@ -40,7 +41,7 @@ export function App() {
   const [treeData, setTreeData] = useState<TreeData | null>(null);
   const [treeLoading, setTreeLoading] = useState(true);
   const [treeSearch, setTreeSearch] = useState(saved.treeSearch || "");
-  const [sidePanel, setSidePanelRaw] = useState<"import" | "stats" | "skills" | "defence" | "items">((saved.sidePanel as any) || "import");
+  const [sidePanel, setSidePanelRaw] = useState<"import" | "stats" | "skills" | "defence" | "items" | "config">((saved.sidePanel as any) || "import");
   const [menuOpen, setMenuOpenRaw] = useState(saved.menuOpen ?? isDesktop);
   const [pinned, setPinnedRaw] = useState(saved.pinned ?? isDesktop);
 
@@ -345,7 +346,7 @@ export function App() {
             </div>
           </div>
           <div className="flex border-b border-poe-border">
-            {(["import", "stats", "skills", "defence", "items"] as const).map((tab) => (
+            {(["import", "stats", "skills", "defence", "items", "config"] as const).map((tab) => (
               <button
                 key={tab}
                 className={`flex-1 px-2 py-2.5 text-xs font-medium transition ${
@@ -358,7 +359,8 @@ export function App() {
                 {tab === "import" ? "Import" :
                  tab === "stats" ? "Stats" :
                  tab === "skills" ? "Skills" :
-                 tab === "defence" ? "Defence" : "Items"}
+                 tab === "defence" ? "Defence" :
+                 tab === "items" ? "Items" : "Config"}
               </button>
             ))}
           </div>
@@ -367,7 +369,8 @@ export function App() {
              sidePanel === "stats" ? <StatsPanel /> :
              sidePanel === "skills" ? <SkillsPanel calcClient={calcClientRef.current} /> :
              sidePanel === "defence" ? <DefencePanel /> :
-             <InventoryPanel />}
+             sidePanel === "items" ? <InventoryPanel /> :
+             <ConfigPanel calcClient={calcClientRef.current} />}
           </div>
         </aside>
       )}
@@ -558,7 +561,7 @@ export function App() {
               </div>
             </div>
             <div className="flex border-b border-poe-border">
-              {(["import", "stats", "skills", "defence", "items"] as const).map((tab) => (
+              {(["import", "stats", "skills", "defence", "items", "config"] as const).map((tab) => (
                 <button
                   key={tab}
                   className={`flex-1 px-2 py-2.5 text-xs font-medium transition ${
@@ -571,7 +574,8 @@ export function App() {
                   {tab === "import" ? "Import" :
                    tab === "stats" ? "Stats" :
                    tab === "skills" ? "Skills" :
-                   tab === "defence" ? "Defence" : "Items"}
+                   tab === "defence" ? "Defence" :
+                   tab === "items" ? "Items" : "Config"}
                 </button>
               ))}
             </div>
@@ -580,7 +584,8 @@ export function App() {
                sidePanel === "stats" ? <StatsPanel /> :
                sidePanel === "skills" ? <SkillsPanel calcClient={calcClientRef.current} /> :
                sidePanel === "defence" ? <DefencePanel /> :
-               <InventoryPanel />}
+               sidePanel === "items" ? <InventoryPanel /> :
+               <ConfigPanel calcClient={calcClientRef.current} />}
             </div>
           </aside>
         </div>

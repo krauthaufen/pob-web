@@ -314,6 +314,9 @@ function pobWebLoadBuild(jsonArg)
   -- Update build reference
   build = mainObject.main.modes["BUILD"]
 
+  -- Install varControls stub for headless mode (ConfigOptions apply functions use it)
+  pcall(installVarControlsStub)
+
   -- If OnFrame failed, try to explicitly run BuildOutput so we have calc data
   if not frameOk and build and build.calcsTab then
     local calcOk, calcErr = pcall(function()
@@ -1519,6 +1522,260 @@ function pobWebGetJewelData(jsonArg)
   end
   return dkjson.encode(result)
 end
+
+-- Install varControls stub so ConfigOptions apply functions don't crash in headless mode.
+-- Called after build load — enemyIsBoss's apply accesses varControls[x]:SetPlaceholder().
+local function installVarControlsStub()
+  if not build or not build.configTab then return end
+  if not build.configTab.varControls then build.configTab.varControls = {} end
+  setmetatable(build.configTab.varControls, {
+    __index = function(t, k)
+      local stub = { placeholder = 0, enabled = true, selIndex = 1, list = {} }
+      function stub:SetPlaceholder(val) self.placeholder = val end
+      function stub:SelByValue(val) end
+      function stub:SetText(text) end
+      t[k] = stub
+      return stub
+    end
+  })
+end
+
+-- Evaluate visibility of a config option against mainEnv state
+local function evalConfigVisibility(varData, mainEnv, input)
+  local function checkAny(ifOpt, checkFn)
+    if type(ifOpt) == "table" then
+      for _, opt in ipairs(ifOpt) do
+        if checkFn(opt) then return true end
+      end
+      return false
+    end
+    return checkFn(ifOpt)
+  end
+
+  if varData.ifCond then
+    if not checkAny(varData.ifCond, function(c)
+      return mainEnv.conditionsUsed and mainEnv.conditionsUsed[c]
+    end) then return false end
+  end
+  if varData.ifMinionCond then
+    if not checkAny(varData.ifMinionCond, function(c)
+      return mainEnv.minionConditionsUsed and mainEnv.minionConditionsUsed[c]
+    end) then return false end
+  end
+  if varData.ifEnemyCond then
+    if not checkAny(varData.ifEnemyCond, function(c)
+      return mainEnv.enemyConditionsUsed and mainEnv.enemyConditionsUsed[c]
+    end) then return false end
+  end
+  if varData.ifOption then
+    if not checkAny(varData.ifOption, function(o)
+      return input[o]
+    end) then return false end
+  end
+  if varData.ifMult then
+    if not checkAny(varData.ifMult, function(m)
+      return mainEnv.multipliersUsed and mainEnv.multipliersUsed[m]
+    end) then return false end
+  end
+  if varData.ifEnemyMult then
+    if not checkAny(varData.ifEnemyMult, function(m)
+      return mainEnv.enemyMultipliersUsed and mainEnv.enemyMultipliersUsed[m]
+    end) then return false end
+  end
+  if varData.ifStat then
+    if not checkAny(varData.ifStat, function(s)
+      return (mainEnv.perStatsUsed and mainEnv.perStatsUsed[s])
+    end) then return false end
+  end
+  if varData.ifEnemyStat then
+    if not checkAny(varData.ifEnemyStat, function(s)
+      return mainEnv.enemyPerStatsUsed and mainEnv.enemyPerStatsUsed[s]
+    end) then return false end
+  end
+  if varData.ifMod then
+    if not checkAny(varData.ifMod, function(m)
+      return mainEnv.modsUsed and mainEnv.modsUsed[m]
+    end) then return false end
+  end
+  if varData.ifSkill then
+    if not checkAny(varData.ifSkill, function(s)
+      return mainEnv.skillsUsed and mainEnv.skillsUsed[s]
+    end) then return false end
+  end
+  if varData.ifSkillType then
+    if not checkAny(varData.ifSkillType, function(st)
+      if mainEnv.player then
+        for _, skill in ipairs(mainEnv.player.activeSkillList or {}) do
+          if skill.skillTypes and skill.skillTypes[st] then return true end
+        end
+      end
+      return false
+    end) then return false end
+  end
+  if varData.ifSkillFlag then
+    if not checkAny(varData.ifSkillFlag, function(sf)
+      if mainEnv.player then
+        for _, skill in ipairs(mainEnv.player.activeSkillList or {}) do
+          local flags = skill.activeEffect and skill.activeEffect.grantedEffect and skill.activeEffect.grantedEffect.statSet and skill.activeEffect.grantedEffect.statSet.skillFlags
+          if flags and flags[sf] then return true end
+          if skill.skillFlags and skill.skillFlags[sf] then return true end
+        end
+      end
+      return false
+    end) then return false end
+  end
+  if varData.ifSkillData then
+    if not checkAny(varData.ifSkillData, function(sd)
+      if mainEnv.player then
+        for _, skill in ipairs(mainEnv.player.activeSkillList or {}) do
+          if skill.skillData and skill.skillData[sd] then return true end
+        end
+      end
+      return false
+    end) then return false end
+  end
+  if varData.ifTagType then
+    if not checkAny(varData.ifTagType, function(tt)
+      return mainEnv.tagTypesUsed and mainEnv.tagTypesUsed[tt]
+    end) then return false end
+  end
+  if varData.ifNode then
+    if not checkAny(varData.ifNode, function(nodeId)
+      if build.spec.allocNodes[nodeId] then return true end
+      local node = build.spec.nodes[nodeId]
+      if node and node.type == "Keystone" then
+        return mainEnv.keystonesAdded and mainEnv.keystonesAdded[node.dn]
+      end
+      return false
+    end) then return false end
+  end
+  if varData.ifFlag then
+    if not checkAny(varData.ifFlag, function(f)
+      if mainEnv.player and mainEnv.player.mainSkill then
+        local skill = mainEnv.player.mainSkill
+        if skill.skillFlags and skill.skillFlags[f] then return true end
+        if skill.skillModList and skill.skillModList.Flag then
+          local ok, result = pcall(skill.skillModList.Flag, skill.skillModList, nil, f)
+          if ok and result then return true end
+        end
+      end
+      return false
+    end) then return false end
+  end
+
+  return true
+end
+
+-- Get all config options with current values and visibility
+function pobWebGetConfigOptions(jsonArg)
+  if not build or not build.configTab then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+
+  local varList = LoadModule("Modules/ConfigOptions")
+  local mainEnv = build.calcsTab and build.calcsTab.mainEnv
+  local configSet = build.configTab.configSets[build.configTab.activeConfigSetId]
+  local input = configSet and configSet.input or {}
+  local placeholder = configSet and configSet.placeholder or {}
+
+  local sections = {}
+  local currentSection = nil
+
+  for _, varData in ipairs(varList) do
+    if varData.section then
+      currentSection = { name = varData.section, options = {} }
+      sections[#sections + 1] = currentSection
+    elseif currentSection and varData.var then
+      local visible = true
+      if mainEnv then
+        local ok, vis = pcall(evalConfigVisibility, varData, mainEnv, input)
+        visible = ok and vis
+      end
+
+      local opt = {
+        var = varData.var,
+        type = varData.type,
+        label = StripEscapes(varData.label or ""),
+        visible = visible,
+        value = input[varData.var],
+        hideIfInvalid = varData.hideIfInvalid or false,
+      }
+
+      -- Placeholder: prefer configSet placeholder, fall back to varData defaults
+      local ph = placeholder[varData.var]
+      if ph == nil then ph = varData.defaultPlaceholderState end
+      if ph ~= nil then opt.placeholder = ph end
+
+      -- List options
+      if varData.type == "list" and varData.list then
+        opt.list = {}
+        for _, item in ipairs(varData.list) do
+          opt.list[#opt.list + 1] = {
+            val = item.val,
+            label = StripEscapes(item.label or ""),
+          }
+        end
+        -- Default selection if no value set
+        if not input[varData.var] and varData.defaultIndex and varData.list[varData.defaultIndex] then
+          opt.value = varData.list[varData.defaultIndex].val
+        end
+      end
+
+      -- Tooltip (string or function)
+      if type(varData.tooltip) == "string" then
+        opt.tooltip = StripEscapes(varData.tooltip)
+      elseif type(varData.tooltip) == "function" then
+        local ok, tip = pcall(varData.tooltip, build.configTab.modList or {}, build)
+        if ok and tip then opt.tooltip = StripEscapes(tostring(tip)) end
+      end
+
+      currentSection.options[#currentSection.options + 1] = opt
+    end
+  end
+
+  return dkjson.encode({ sections = sections })
+end
+
+-- Set a config value and trigger recalculation
+function pobWebSetConfig(jsonArg)
+  if not build or not build.configTab then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+  local args = dkjson.decode(jsonArg)
+  if not args or not args.var then
+    return dkjson.encode({ error = "missing var" })
+  end
+
+  local configSet = build.configTab.configSets[build.configTab.activeConfigSetId]
+  if not configSet then
+    return dkjson.encode({ error = "no active config set" })
+  end
+
+  -- Set value (null/nil clears to default)
+  if args.value == nil or args.value == dkjson.null then
+    configSet.input[args.var] = nil
+  else
+    configSet.input[args.var] = args.value
+  end
+
+  -- Rebuild mods from config
+  installVarControlsStub()
+  local modOk, modErr = pcall(function()
+    build.configTab:BuildModList()
+  end)
+  if not modOk then
+    print("BuildModList after config change (non-fatal): " .. tostring(modErr))
+  end
+
+  -- Trigger full recalc
+  build.buildFlag = true
+  local ok, err = pcall(runCallback, "OnFrame")
+  if not ok then
+    print("OnFrame after config change (non-fatal): " .. tostring(err))
+  end
+
+  return dkjson.encode({ success = true })
+end
 `;
 
 async function initEngine(): Promise<boolean> {
@@ -1594,8 +1851,13 @@ self.onmessage = async (e: MessageEvent<CalcRequest & { _id?: string }>) => {
       }
       try {
         const result = bridge_call_json("pobWebLoadBuild", JSON.stringify({ xml: msg.xml }));
-        const parsed = JSON.parse(result);
-        respond(_id, { type: "loadBuild", success: !parsed.error, error: parsed.error, allocatedNodes: parsed.allocatedNodes });
+        try {
+          const parsed = JSON.parse(result);
+          respond(_id, { type: "loadBuild", success: !parsed.error, error: parsed.error, allocatedNodes: parsed.allocatedNodes });
+        } catch {
+          // bridge_call_json returned a Lua error string instead of JSON
+          respond(_id, { type: "loadBuild", success: false, error: result });
+        }
       } catch (e) {
         respond(_id, { type: "loadBuild", success: false, error: String(e) });
       }
@@ -1827,6 +2089,43 @@ self.onmessage = async (e: MessageEvent<CalcRequest & { _id?: string }>) => {
         }
       } catch (e) {
         respond(_id, { type: "nodePower", data: emptyPower, error: String(e) });
+      }
+      break;
+    }
+
+    case "getConfigOptions": {
+      if (!initialized) {
+        respond(_id, { type: "configOptions", data: { sections: [] }, error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebGetConfigOptions", "{}");
+        const data = JSON.parse(result);
+        if (data.error) {
+          respond(_id, { type: "configOptions", data: { sections: [] }, error: data.error });
+        } else {
+          respond(_id, { type: "configOptions", data });
+        }
+      } catch (e) {
+        respond(_id, { type: "configOptions", data: { sections: [] }, error: String(e) });
+      }
+      break;
+    }
+
+    case "setConfig": {
+      if (!initialized) {
+        respond(_id, { type: "setConfig", data: { success: false }, error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebSetConfig", JSON.stringify({
+          var: (msg as any).var,
+          value: (msg as any).value,
+        }));
+        const data = JSON.parse(result);
+        respond(_id, { type: "setConfig", data });
+      } catch (e) {
+        respond(_id, { type: "setConfig", data: { success: false }, error: String(e) });
       }
       break;
     }
