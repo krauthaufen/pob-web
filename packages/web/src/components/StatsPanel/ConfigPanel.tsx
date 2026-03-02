@@ -5,9 +5,10 @@ import type { ConfigData, ConfigOption, ConfigSection } from "@/worker/calc-api"
 
 interface ConfigPanelProps {
   calcClient?: CalcClient | null;
+  onConfigChange?: () => void;
 }
 
-export function ConfigPanel({ calcClient }: ConfigPanelProps) {
+export function ConfigPanel({ calcClient, onConfigChange }: ConfigPanelProps) {
   const { build, calcStatus, setCalcDisplay, setDisplayStats } = useBuildStore();
   const [configData, setConfigData] = useState<ConfigData | null>(null);
   const [searchText, setSearchText] = useState("");
@@ -16,11 +17,43 @@ export function ConfigPanel({ calcClient }: ConfigPanelProps) {
   const [updating, setUpdating] = useState(false);
   const debounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  // Fetch config when build is ready (or on error — engine may have partial data)
+  // Persist config values to localStorage
+  const persistConfig = useCallback((data: ConfigData) => {
+    try {
+      const vals: Record<string, boolean | number | string> = {};
+      for (const s of data.sections) {
+        for (const o of s.options) {
+          if (o.value != null && o.value !== false) vals[o.var] = o.value as any;
+        }
+      }
+      localStorage.setItem("pob-config", JSON.stringify(vals));
+    } catch {}
+  }, []);
+
+  // Restore saved config on build load
+  const restoredRef = useRef(false);
   useEffect(() => {
     if (!calcClient || !build) return;
     if (calcStatus !== "ready" && calcStatus !== "error") return;
-    calcClient.getConfigOptions().then(setConfigData).catch(console.error);
+    // On first load, restore saved config then fetch
+    if (!restoredRef.current) {
+      restoredRef.current = true;
+      (async () => {
+        try {
+          const saved = localStorage.getItem("pob-config");
+          if (saved) {
+            const vals: Record<string, boolean | number | string> = JSON.parse(saved);
+            for (const [k, v] of Object.entries(vals)) {
+              await calcClient.setConfig(k, v);
+            }
+          }
+        } catch {}
+        const data = await calcClient.getConfigOptions();
+        setConfigData(data);
+      })();
+    } else {
+      calcClient.getConfigOptions().then(setConfigData).catch(console.error);
+    }
   }, [calcClient, calcStatus, build]);
 
   const handleChange = useCallback(async (varName: string, value: boolean | number | string | null) => {
@@ -38,13 +71,39 @@ export function ConfigPanel({ calcClient }: ConfigPanelProps) {
         setConfigData(newConfig);
         setCalcDisplay(display);
         setDisplayStats(displayStats);
+        persistConfig(newConfig);
+        onConfigChange?.();
       }
     } catch (e) {
       console.error("[Config] setConfig failed:", e);
     } finally {
       setUpdating(false);
     }
-  }, [calcClient, updating, setCalcDisplay, setDisplayStats]);
+  }, [calcClient, updating, setCalcDisplay, setDisplayStats, onConfigChange]);
+
+  const handleReset = useCallback(async () => {
+    if (!calcClient || updating) return;
+    setUpdating(true);
+    try {
+      const result = await calcClient.resetConfig();
+      if (result.success) {
+        const [newConfig, display, displayStats] = await Promise.all([
+          calcClient.getConfigOptions(),
+          calcClient.getCalcDisplay(),
+          calcClient.getDisplayStats(),
+        ]);
+        setConfigData(newConfig);
+        setCalcDisplay(display);
+        setDisplayStats(displayStats);
+        try { localStorage.removeItem("pob-config"); } catch {}
+        onConfigChange?.();
+      }
+    } catch (e) {
+      console.error("[Config] resetConfig failed:", e);
+    } finally {
+      setUpdating(false);
+    }
+  }, [calcClient, updating, setCalcDisplay, setDisplayStats, onConfigChange]);
 
   // Debounced handler for numeric inputs
   const handleNumericChange = useCallback((varName: string, raw: string) => {
@@ -138,6 +197,14 @@ export function ConfigPanel({ calcClient }: ConfigPanelProps) {
           />
           All
         </label>
+        <button
+          className="rounded px-1.5 py-0.5 text-[10px] text-gray-500 hover:bg-poe-border hover:text-gray-300"
+          onClick={handleReset}
+          disabled={updating}
+          title="Reset all config to defaults"
+        >
+          Reset
+        </button>
       </div>
 
       {/* Sections */}

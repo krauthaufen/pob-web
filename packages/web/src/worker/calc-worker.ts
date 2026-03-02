@@ -1776,6 +1776,31 @@ function pobWebSetConfig(jsonArg)
 
   return dkjson.encode({ success = true })
 end
+
+-- Reset all config values to defaults
+function pobWebResetConfig(jsonArg)
+  if not build or not build.configTab then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+
+  local configSet = build.configTab.configSets[build.configTab.activeConfigSetId]
+  if not configSet then
+    return dkjson.encode({ error = "no active config set" })
+  end
+
+  -- Clear all input values
+  for k in pairs(configSet.input) do
+    configSet.input[k] = nil
+  end
+
+  -- Rebuild mods
+  installVarControlsStub()
+  pcall(function() build.configTab:BuildModList() end)
+  build.buildFlag = true
+  pcall(runCallback, "OnFrame")
+
+  return dkjson.encode({ success = true })
+end
 `;
 
 async function initEngine(): Promise<boolean> {
@@ -2126,6 +2151,21 @@ self.onmessage = async (e: MessageEvent<CalcRequest & { _id?: string }>) => {
         respond(_id, { type: "setConfig", data });
       } catch (e) {
         respond(_id, { type: "setConfig", data: { success: false }, error: String(e) });
+      }
+      break;
+    }
+
+    case "resetConfig": {
+      if (!initialized) {
+        respond(_id, { type: "resetConfig", data: { success: false }, error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebResetConfig", "{}");
+        const data = JSON.parse(result);
+        respond(_id, { type: "resetConfig", data });
+      } catch (e) {
+        respond(_id, { type: "resetConfig", data: { success: false }, error: String(e) });
       }
       break;
     }

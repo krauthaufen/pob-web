@@ -141,6 +141,12 @@ export class CalcClient {
     return { success: false };
   }
 
+  async resetConfig(): Promise<{ success: boolean }> {
+    const res = await this.send({ type: "resetConfig" });
+    if (res.type === "resetConfig") return res.data;
+    return { success: false };
+  }
+
   async exportBuild(): Promise<string> {
     const res = await this.send({ type: "exportBuild" });
     if (res.type === "exportBuild") return res.data.code;

@@ -21,6 +21,7 @@ export type CalcRequest =
   | { type: "exportBuild" }
   | { type: "getConfigOptions" }
   | { type: "setConfig"; var: string; value: boolean | number | string | null }
+  | { type: "resetConfig" }
   | { type: "exec"; code: string };
 
 /** Per-skill DPS entry from PoB's calcFullDPS (output.SkillDPS) */
@@ -242,6 +243,7 @@ export type CalcResponse =
   | { type: "exportBuild"; data: { code: string }; error?: string }
   | { type: "configOptions"; data: ConfigData; error?: string }
   | { type: "setConfig"; data: { success: boolean }; error?: string }
+  | { type: "resetConfig"; data: { success: boolean }; error?: string }
   | { type: "error"; message: string }
   | { type: "log"; message: string }
   | { type: "exec"; result?: string; error?: string };
