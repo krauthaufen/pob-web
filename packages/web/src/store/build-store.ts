@@ -83,6 +83,9 @@ interface BuildState {
   jewelData: Record<string, JewelInfo> | null;
   weaponSetNodes: Record<number, number> | null;
   equippedItems: EquippedItem[] | null;
+  itemImageUrls: Record<string, string>;
+  runeImageUrls: Record<string, string>;
+  jewelImageUrls: Record<string, string>;
 
   // Skills
   selectedSkillGroup: number;
@@ -90,6 +93,7 @@ interface BuildState {
   // Passive tree
   allocatedNodes: Set<number>;
   hoveredNode: number | null;
+  focusNodeHash: number | null;
   viewportResetCounter: number;
 
   // Actions
@@ -105,10 +109,14 @@ interface BuildState {
   setJewelData: (data: Record<string, JewelInfo>) => void;
   setWeaponSetNodes: (data: Record<number, number>) => void;
   setEquippedItems: (data: EquippedItem[]) => void;
+  setItemImageUrls: (urls: Record<string, string>) => void;
+  setRuneImageUrls: (urls: Record<string, string>) => void;
+  setJewelImageUrls: (urls: Record<string, string>) => void;
   setSelectedSkillGroup: (group: number) => void;
   toggleNode: (nodeId: number) => void;
   setAllocatedNodes: (nodes: number[]) => void;
   setHoveredNode: (nodeId: number | null) => void;
+  focusNode: (nodeHash: number) => void;
   resetViewport: () => void;
   reset: () => void;
 }
@@ -135,9 +143,13 @@ export const useBuildStore = create<BuildState>((set) => ({
   jewelData: null,
   weaponSetNodes: null,
   equippedItems: null,
+  itemImageUrls: {},
+  runeImageUrls: {},
+  jewelImageUrls: {},
   selectedSkillGroup: 1,
   allocatedNodes: new Set(),
   hoveredNode: null,
+  focusNodeHash: null,
   viewportResetCounter: 0,
 
   setBuild: (build) =>
@@ -166,6 +178,9 @@ export const useBuildStore = create<BuildState>((set) => ({
   setJewelData: (jewelData) => set({ jewelData }),
   setWeaponSetNodes: (weaponSetNodes) => set({ weaponSetNodes }),
   setEquippedItems: (equippedItems) => set({ equippedItems }),
+  setItemImageUrls: (itemImageUrls) => set({ itemImageUrls }),
+  setRuneImageUrls: (runeImageUrls) => set({ runeImageUrls }),
+  setJewelImageUrls: (jewelImageUrls) => set({ jewelImageUrls }),
   setSelectedSkillGroup: (selectedSkillGroup) => set({ selectedSkillGroup }),
 
   toggleNode: (nodeId) =>
@@ -181,6 +196,7 @@ export const useBuildStore = create<BuildState>((set) => ({
 
   setAllocatedNodes: (nodes) => set({ allocatedNodes: new Set(nodes) }),
   setHoveredNode: (hoveredNode) => set({ hoveredNode }),
+  focusNode: (nodeHash) => set({ focusNodeHash: nodeHash }),
   resetViewport: () => set((state) => ({ viewportResetCounter: state.viewportResetCounter + 1 })),
   reset: () =>
     set({
@@ -197,8 +213,12 @@ export const useBuildStore = create<BuildState>((set) => ({
       jewelData: null,
       weaponSetNodes: null,
       equippedItems: null,
+      itemImageUrls: {},
+      runeImageUrls: {},
+      jewelImageUrls: {},
       selectedSkillGroup: 1,
       allocatedNodes: new Set(),
       hoveredNode: null,
+      focusNodeHash: null,
     }),
 }));

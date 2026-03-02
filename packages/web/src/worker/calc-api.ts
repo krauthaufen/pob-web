@@ -106,18 +106,66 @@ export interface JewelInfo {
 }
 
 /** Equipped item data from PoB's ItemsTab */
+export interface ModLine {
+  line: string;
+  crafted?: boolean;
+  fractured?: boolean;
+  desecrated?: boolean;
+  mutated?: boolean;
+  bonded?: boolean;
+}
+
 export interface EquippedItem {
   slot: string;
   name: string;
   baseName: string;
+  itemType: string;
   rarity: string;
   quality: number;
+  catalystType?: string;
+  catalystQuality?: number;
   levelReq: number;
-  implicitMods: string[];
-  explicitMods: string[];
-  craftedMods: string[];
-  enchantMods: string[];
-  runeMods: string[];
+  corrupted: boolean;
+  doubleCorrupted: boolean;
+  mirrored: boolean;
+  fractured: boolean;
+  influences: string[];
+  implicitMods: ModLine[];
+  enchantMods: ModLine[];
+  runeMods: ModLine[];
+  explicitMods: ModLine[];
+  buffMods?: ModLine[];
+  weapon?: {
+    physMin?: number; physMax?: number; physDps?: number;
+    fireMin?: number; fireMax?: number; fireDps?: number;
+    coldMin?: number; coldMax?: number; coldDps?: number;
+    lightningMin?: number; lightningMax?: number; lightningDps?: number;
+    chaosMin?: number; chaosMax?: number; chaosDps?: number;
+    elemDps?: number;
+    totalDps?: number;
+    aps?: number;
+    critChance?: number;
+    range?: number;
+  };
+  armour?: {
+    armour?: number;
+    evasion?: number;
+    energyShield?: number;
+    ward?: number;
+    blockChance?: number;
+  };
+  flask?: {
+    lifeTotal?: number; lifeGradual?: number; lifeInstant?: number;
+    manaTotal?: number; manaGradual?: number; manaInstant?: number;
+    duration?: number; chargesUsed?: number; chargesMax?: number;
+  };
+  charm?: {
+    duration?: number; chargesUsed?: number; chargesMax?: number;
+  };
+  spirit?: number;
+  sockets?: number;
+  runeNames?: string[];
+  requirements?: { str: number; dex: number; int: number };
 }
 
 /** PoB sidebar display stat (from BuildDisplayStats.lua) */

@@ -5,12 +5,29 @@
  * Some base items share icons with other items (e.g. "Warlord Cuirass" uses
  * the "Chieftain Cuirass" icon). The icon map handles these redirects.
  */
-import type { EquippedItem } from "@/worker/calc-api";
+import type { EquippedItem, JewelInfo } from "@/worker/calc-api";
 import iconMap from "./item-icon-map.json";
 
 const WIKI_API = "https://www.poe2wiki.net/w/api.php";
+const STORAGE_KEY = "pob-item-image-cache";
 const imageCache = new Map<string, string>();
 const missingCache = new Set<string>();
+
+// Hydrate from localStorage on module load
+try {
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (stored) {
+    for (const [k, v] of Object.entries(JSON.parse(stored))) {
+      imageCache.set(k, v as string);
+    }
+  }
+} catch {}
+
+function persistCache() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(imageCache)));
+  } catch {}
+}
 
 const iconRedirects = iconMap as Record<string, string>;
 
@@ -51,6 +68,50 @@ async function batchResolve(titles: string[]): Promise<Map<string, string>> {
       // Network error — skip this batch
     }
   }
+  return result;
+}
+
+/**
+ * Resolve rune/soul core images for socketed items.
+ * Returns a map of rune name → image URL.
+ */
+export async function resolveRuneImages(
+  items: EquippedItem[],
+): Promise<Record<string, string>> {
+  const result: Record<string, string> = {};
+  const toQuery: string[] = [];
+  const seen = new Set<string>();
+
+  for (const item of items) {
+    if (!item.runeNames) continue;
+    for (const name of item.runeNames) {
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      const title = fileTitle(name);
+      if (imageCache.has(title)) {
+        result[name] = imageCache.get(title)!;
+      } else if (!missingCache.has(title)) {
+        toQuery.push(title);
+      }
+    }
+  }
+
+  if (toQuery.length === 0) return result;
+
+  const resolved = await batchResolve(toQuery);
+  for (const [title, url] of resolved) imageCache.set(title, url);
+  for (const title of toQuery) {
+    if (!resolved.has(title)) missingCache.add(title);
+  }
+  if (resolved.size > 0) persistCache();
+
+  // Map back to rune names
+  for (const name of seen) {
+    if (result[name]) continue;
+    const url = imageCache.get(fileTitle(name));
+    if (url) result[name] = url;
+  }
+
   return result;
 }
 
@@ -111,6 +172,7 @@ export async function resolveItemImages(
   for (const [title, url] of resolved) {
     imageCache.set(title, url);
   }
+  if (resolved.size > 0) persistCache();
 
   // Mark unresolved titles as missing
   for (const title of toQuery) {
@@ -134,6 +196,59 @@ export async function resolveItemImages(
     } else if (baseUrl) {
       result[item.slot] = baseUrl;
     }
+  }
+
+  return result;
+}
+
+/**
+ * Resolve jewel images from poe2wiki.
+ * Returns a map of jewel name → image URL.
+ * Tries unique name first (for uniques), then baseName.
+ */
+export async function resolveJewelImages(
+  jewels: Record<string, JewelInfo>,
+): Promise<Record<string, string>> {
+  const result: Record<string, string> = {};
+  const toQuery: string[] = [];
+  const seen = new Set<string>();
+
+  for (const jewel of Object.values(jewels)) {
+    if (!jewel.name || seen.has(jewel.name)) continue;
+    seen.add(jewel.name);
+
+    const uniqueTitle = jewel.rarity.toUpperCase() === "UNIQUE" ? fileTitle(jewel.name) : null;
+    const baseTitle = jewel.baseName ? fileTitle(jewel.baseName) : null;
+
+    if (uniqueTitle && imageCache.has(uniqueTitle)) {
+      result[jewel.name] = imageCache.get(uniqueTitle)!;
+      continue;
+    }
+    if (baseTitle && imageCache.has(baseTitle)) {
+      result[jewel.name] = imageCache.get(baseTitle)!;
+      continue;
+    }
+
+    if (uniqueTitle && !missingCache.has(uniqueTitle)) toQuery.push(uniqueTitle);
+    if (baseTitle && !missingCache.has(baseTitle)) toQuery.push(baseTitle);
+  }
+
+  if (toQuery.length === 0) return result;
+
+  const resolved = await batchResolve(toQuery);
+  for (const [title, url] of resolved) imageCache.set(title, url);
+  for (const title of toQuery) {
+    if (!resolved.has(title)) missingCache.add(title);
+  }
+  if (resolved.size > 0) persistCache();
+
+  for (const jewel of Object.values(jewels)) {
+    if (!jewel.name || result[jewel.name]) continue;
+    const uniqueTitle = jewel.rarity.toUpperCase() === "UNIQUE" ? fileTitle(jewel.name) : null;
+    const baseTitle = jewel.baseName ? fileTitle(jewel.baseName) : null;
+    const url = (uniqueTitle ? imageCache.get(uniqueTitle) : undefined) ??
+                (baseTitle ? imageCache.get(baseTitle) : undefined);
+    if (url) result[jewel.name] = url;
   }
 
   return result;

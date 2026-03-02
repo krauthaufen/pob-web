@@ -704,6 +704,15 @@ function pobWebCalcNodeImpact(jsonArg)
   end
 
   -- Use PoB's cached calculator from CalcsTab (populated by BuildOutput)
+  -- If BuildOutput crashed before setting miscCalculator (e.g. CalcDefence NaN), init it now
+  if not build.calcsTab.miscCalculator then
+    local initOk, res = pcall(function()
+      build.calcsTab.miscCalculator = { build.calcsTab.calcs.getMiscCalculator(build) }
+    end)
+    if not initOk then
+      return dkjson.encode({ error = "getMiscCalculator init failed: " .. tostring(res) })
+    end
+  end
   local miscOk, calcFunc, calcBase = pcall(build.calcsTab.GetMiscCalculator, build.calcsTab)
   if not miscOk then
     return dkjson.encode({ error = "GetMiscCalculator failed: " .. tostring(calcFunc) })
@@ -1135,60 +1144,175 @@ function pobWebGetItemsData(jsonArg)
     return dkjson.encode({ items = {} })
   end
 
+  -- Check if build has CanUseBondedModifiers (Shaman ascendancy notable)
+  local hasBonded = false
+  if build.calcsTab and build.calcsTab.mainEnv and build.calcsTab.mainEnv.modDB then
+    local cond = build.calcsTab.mainEnv.modDB.conditions
+    if cond and cond["CanUseBondedModifiers"] then
+      hasBonded = true
+    end
+  end
+
+  local catalystTypes = {
+    "Life Modifiers", "Mana Modifiers", "Defense Modifiers", "Physical",
+    "Fire Modifiers", "Cold Modifiers", "Lightning Modifiers", "Chaos Modifiers",
+    "Attack Modifiers", "Caster Modifiers", "Speed Modifiers", "Attribute Modifiers"
+  }
+
+  local function cleanLine(line)
+    return line:gsub("%^%d",""):gsub("%^x%x%x%x%x%x%x","")
+  end
+
+  local function collectMods(modLines, skipBonded)
+    if not modLines then return {} end
+    local mods = {}
+    for _, mod in ipairs(modLines) do
+      if mod.line and mod.line ~= "" then
+        if skipBonded and mod.bonded then
+          -- skip bonded mods when build doesn't have the condition
+        else
+          local m = { line = cleanLine(mod.line) }
+          if mod.crafted then m.crafted = true end
+          if mod.fractured then m.fractured = true end
+          if mod.desecrated then m.desecrated = true end
+          if mod.mutated then m.mutated = true end
+          if mod.bonded then m.bonded = true end
+          mods[#mods + 1] = m
+        end
+      end
+    end
+    return mods
+  end
+
   for slotName, slot in pairs(slots) do
     if slot.selItemId and slot.selItemId > 0 then
       local item = build.itemsTab.items[slot.selItemId]
       if item then
+        local base = item.base
         local itemData = {
           slot = slotName,
           name = item.title or item.name or "",
-          baseName = item.baseName or item.base and item.base.name or "",
+          baseName = item.baseName or (base and base.name) or "",
+          itemType = (base and base.weapon and build.data.weaponTypeInfo[base.type] and build.data.weaponTypeInfo[base.type].label) or (base and base.type) or "",
           rarity = item.rarity or "NORMAL",
           quality = item.quality or 0,
           levelReq = item.levelReq or 0,
-          implicitMods = {},
-          explicitMods = {},
-          craftedMods = {},
-          enchantMods = {},
-          runeMods = {},
+          corrupted = item.corrupted or false,
+          doubleCorrupted = item.doubleCorrupted or false,
+          mirrored = item.mirrored or false,
+          fractured = item.fractured or false,
+          influences = {},
+          implicitMods = collectMods(item.implicitModLines),
+          enchantMods = collectMods(item.enchantModLines),
+          runeMods = collectMods(item.runeModLines, not hasBonded),
+          explicitMods = collectMods(item.explicitModLines),
         }
 
-        -- Collect mod lines
-        if item.implicitModLines then
-          for _, mod in ipairs(item.implicitModLines) do
-            if mod.line and mod.line ~= "" then
-              local clean = mod.line:gsub("%^%d",""):gsub("%^x%x%x%x%x%x%x","")
-              itemData.implicitMods[#itemData.implicitMods + 1] = clean
-            end
+        -- Catalyst quality (jewelry)
+        if item.catalyst and item.catalyst > 0 and item.catalystQuality and item.catalystQuality > 0 then
+          itemData.catalystType = catalystTypes[item.catalyst] or nil
+          itemData.catalystQuality = item.catalystQuality
+        end
+
+        -- Influences
+        if item.desecrated then itemData.influences[#itemData.influences + 1] = "Desecrated" end
+        if item.mutated then itemData.influences[#itemData.influences + 1] = "Mutated" end
+
+        -- Weapon stats
+        if base and base.weapon and item.weaponData then
+          local wd = item.weaponData[slot.slotNum or 1]
+          if wd then
+            itemData.weapon = {
+              physMin = wd.PhysicalMin, physMax = wd.PhysicalMax, physDps = wd.PhysicalDPS,
+              fireMin = wd.FireMin, fireMax = wd.FireMax, fireDps = wd.FireDPS,
+              coldMin = wd.ColdMin, coldMax = wd.ColdMax, coldDps = wd.ColdDPS,
+              lightningMin = wd.LightningMin, lightningMax = wd.LightningMax, lightningDps = wd.LightningDPS,
+              chaosMin = wd.ChaosMin, chaosMax = wd.ChaosMax, chaosDps = wd.ChaosDPS,
+              elemDps = wd.ElementalDPS,
+              totalDps = wd.TotalDPS,
+              aps = wd.AttackRate,
+              critChance = wd.CritChance,
+              range = wd.range,
+            }
           end
         end
-        if item.explicitModLines then
-          for _, mod in ipairs(item.explicitModLines) do
-            if mod.line and mod.line ~= "" then
-              local clean = mod.line:gsub("%^%d",""):gsub("%^x%x%x%x%x%x%x","")
-              local isCrafted = mod.crafted or false
-              if isCrafted then
-                itemData.craftedMods[#itemData.craftedMods + 1] = clean
-              else
-                itemData.explicitMods[#itemData.explicitMods + 1] = clean
+
+        -- Armour stats
+        if base and base.armour and item.armourData then
+          local ad = item.armourData
+          itemData.armour = {}
+          if ad.Armour and ad.Armour > 0 then itemData.armour.armour = ad.Armour end
+          if ad.Evasion and ad.Evasion > 0 then itemData.armour.evasion = ad.Evasion end
+          if ad.EnergyShield and ad.EnergyShield > 0 then itemData.armour.energyShield = ad.EnergyShield end
+          if ad.Ward and ad.Ward > 0 then itemData.armour.ward = ad.Ward end
+          if ad.BlockChance and ad.BlockChance > 0 then itemData.armour.blockChance = ad.BlockChance end
+        end
+
+        -- Flask stats
+        if base and base.flask and item.flaskData then
+          local fd = item.flaskData
+          itemData.flask = {
+            lifeTotal = fd.lifeTotal,
+            lifeGradual = fd.lifeGradual,
+            lifeInstant = fd.lifeInstant,
+            manaTotal = fd.manaTotal,
+            manaGradual = fd.manaGradual,
+            manaInstant = fd.manaInstant,
+            duration = fd.duration,
+            chargesUsed = fd.chargesUsed,
+            chargesMax = fd.chargesMax,
+          }
+          -- Flask buff mods
+          if item.buffModLines then
+            itemData.buffMods = collectMods(item.buffModLines)
+          end
+        end
+
+        -- Charm stats
+        if base and base.charm and item.charmData then
+          local cd = item.charmData
+          itemData.charm = {
+            duration = cd.duration,
+            chargesUsed = cd.chargesUsed,
+            chargesMax = cd.chargesMax,
+          }
+          if item.buffModLines then
+            itemData.buffMods = collectMods(item.buffModLines)
+          end
+        end
+
+        -- Spirit cost
+        if item.spiritValue and item.spiritValue > 0 then
+          itemData.spirit = item.spiritValue
+        end
+
+        -- Sockets and runes
+        if item.itemSocketCount and item.itemSocketCount > 0 then
+          itemData.sockets = item.itemSocketCount
+          -- Collect socketed rune/augment names
+          if item.runes then
+            local names = {}
+            for i = 1, item.itemSocketCount do
+              local name = item.runes[i]
+              if name and name ~= "None" then
+                names[#names + 1] = name
               end
             end
-          end
-        end
-        if item.enchantModLines then
-          for _, mod in ipairs(item.enchantModLines) do
-            if mod.line and mod.line ~= "" then
-              local clean = mod.line:gsub("%^%d",""):gsub("%^x%x%x%x%x%x%x","")
-              itemData.enchantMods[#itemData.enchantMods + 1] = clean
+            if #names > 0 then
+              itemData.runeNames = names
             end
           end
         end
-        if item.runeModLines then
-          for _, mod in ipairs(item.runeModLines) do
-            if mod.line and mod.line ~= "" then
-              local clean = mod.line:gsub("%^%d",""):gsub("%^x%x%x%x%x%x%x","")
-              itemData.runeMods[#itemData.runeMods + 1] = clean
-            end
+
+        -- Requirements
+        if item.requirements then
+          local r = item.requirements
+          if (r.str and r.str > 0) or (r.dex and r.dex > 0) or (r.int and r.int > 0) then
+            itemData.requirements = {
+              str = r.str or 0,
+              dex = r.dex or 0,
+              int = r.int or 0,
+            }
           end
         end
 
@@ -1551,7 +1675,7 @@ self.onmessage = async (e: MessageEvent<CalcRequest & { _id?: string }>) => {
     }
 
     case "calcNodeImpact": {
-      const emptyImpact = { deltas: {}, pathCount: 1 };
+      const emptyImpact = { deltas: {}, pathCount: 1, pathNodes: [] as number[] };
       if (!initialized) {
         respond(_id, { type: "nodeImpact", data: emptyImpact, error: "Engine not initialized" });
         break;

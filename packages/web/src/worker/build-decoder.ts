@@ -7,17 +7,24 @@
 import pako from "pako";
 
 /**
- * Check if input is a poe.ninja profile URL and extract account/character.
+ * Check if input is a poe.ninja character URL and extract account/character.
  * Supports formats:
  *   https://poe.ninja/poe2/profile/{account}/character/{character}
- *   https://poe.ninja/poe2/profile/{account}/character/{character}?...
+ *   https://poe.ninja/poe2/builds/{league}/character/{account}/{character}
  */
 export function parsePoeNinjaUrl(input: string): { account: string; character: string } | null {
-  const match = input.trim().match(
+  const trimmed = input.trim();
+  // /profile/{account}/character/{character}
+  const profileMatch = trimmed.match(
     /poe\.ninja\/poe2\/profile\/([^/]+)\/character\/([^/?#]+)/
   );
-  if (!match) return null;
-  return { account: match[1]!, character: match[2]! };
+  if (profileMatch) return { account: profileMatch[1]!, character: profileMatch[2]! };
+  // /builds/{league}/character/{account}/{character}
+  const buildsMatch = trimmed.match(
+    /poe\.ninja\/poe2\/builds\/[^/]+\/character\/([^/]+)\/([^/?#]+)/
+  );
+  if (buildsMatch) return { account: buildsMatch[1]!, character: buildsMatch[2]! };
+  return null;
 }
 
 /**
@@ -25,9 +32,8 @@ export function parsePoeNinjaUrl(input: string): { account: string; character: s
  * Uses a proxy in dev (/poe-ninja-api) to avoid CORS.
  */
 export async function fetchPoeNinjaBuild(account: string, character: string): Promise<string> {
-  // In dev, the Vite proxy rewrites /poe-ninja-api → https://poe.ninja
-  // In prod, you'd need your own proxy or a CORS-friendly endpoint
-  const base = import.meta.env.DEV ? "/poe-ninja-api" : "https://poe.ninja";
+  // Both dev (Vite proxy) and prod (nginx proxy) serve /poe-ninja-api
+  const base = "/poe-ninja-api";
   const url = `${base}/poe2/api/profile/characters/${encodeURIComponent(account)}/${encodeURIComponent(character)}/model/0`;
 
   const resp = await fetch(url);

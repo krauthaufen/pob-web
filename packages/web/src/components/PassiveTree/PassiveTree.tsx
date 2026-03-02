@@ -8,6 +8,7 @@ import type { CalcClient } from "@/worker/calc-client";
 import { processTree } from "./tree-processor";
 import { encodeBuildCode } from "@/worker/build-decoder";
 import { NodeDetailPanel } from "./NodeDetailPanel";
+import { JewelDetailBody } from "@/components/StatsPanel/InventoryPanel";
 import {
   loadTreeAtlases,
   getFrameTexture,
@@ -103,6 +104,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
   const [appReady, setAppReady] = useState(false);
   const [tooltip, setTooltip] = useState<{
     x: number; y: number; node: ProcessedNode;
+    jewelInfo?: { name: string; baseName: string; rarity: string; implicitMods: string[]; explicitMods: string[]; enchantMods: string[]; runeMods: string[] } | null;
   } | null>(null);
 
   // Node detail panel state
@@ -189,6 +191,8 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       saveViewport(world);
     };
 
+    let activePointerId = -1;
+
     const onPointerDown = (e: PointerEvent) => {
       if (e.pointerType === "touch") return;
       if (e.button === 0 || e.button === 1) {
@@ -196,7 +200,9 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
         dragMoved = false;
         lastX = e.clientX;
         lastY = e.clientY;
-        el.setPointerCapture(e.pointerId);
+        activePointerId = e.pointerId;
+        // Don't setPointerCapture here — it fires pointerout on PixiJS nodes
+        // and prevents pointertap from working. Capture on first move instead.
       }
     };
 
@@ -205,7 +211,14 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       if (isDragging && worldRef.current) {
         const dx = e.clientX - lastX;
         const dy = e.clientY - lastY;
-        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) dragMoved = true;
+        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+          dragMoved = true;
+          try {
+            if (activePointerId >= 0 && !el.hasPointerCapture(activePointerId)) {
+              el.setPointerCapture(activePointerId);
+            }
+          } catch {}
+        }
         worldRef.current.x += dx;
         worldRef.current.y += dy;
         lastX = e.clientX;
@@ -218,6 +231,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       if (e.pointerType === "touch") return;
       if (isDragging && worldRef.current) saveViewport(worldRef.current);
       isDragging = false;
+      activePointerId = -1;
       el.style.cursor = "";
     };
 
@@ -580,14 +594,25 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
           contains: (x: number, y: number) => x * x + y * y < hitR * hitR,
         };
 
-        nodeContainer.on("pointerenter", () => {
+        nodeContainer.on("pointerenter", (e: any) => {
+          // No hover tooltip for touch input
+          if (e.pointerType === "touch") return;
+          // Check if pointer is occluded by an HTML panel above the canvas
+          const ne = e.nativeEvent;
+          if (ne && ne.clientX != null) {
+            const topEl = document.elementFromPoint(ne.clientX, ne.clientY);
+            const canvasEl = canvasRef.current?.querySelector("canvas");
+            if (topEl && topEl !== canvasEl) return;
+          }
           setHoveredNode(node.hash);
           if (!selectedNodeRef.current) {
             const globalPos = nodeContainer.getGlobalPosition();
-            setTooltip({ x: globalPos.x, y: globalPos.y, node });
+            const curJewelDataHover = node.type === "jewel" ? useBuildStore.getState().jewelData?.[String(node.hash)] ?? null : null;
+            setTooltip({ x: globalPos.x, y: globalPos.y, node, jewelInfo: curJewelDataHover });
           }
         });
-        nodeContainer.on("pointerleave", () => {
+        nodeContainer.on("pointerleave", (e: any) => {
+          if (e.pointerType === "touch") return;
           setHoveredNode(null);
           setTooltip(null);
         });
@@ -625,6 +650,25 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
 
     return () => { cancelled = true; };
   }, [appReady, treeData, setHoveredNode, createNodeVisual, buildAscendancy]);
+
+  // Focus on a specific node when requested
+  const focusNodeHash = useBuildStore((s) => s.focusNodeHash);
+  useEffect(() => {
+    if (focusNodeHash == null) return;
+    const app = appRef.current;
+    const world = worldRef.current;
+    if (!app || !world) return;
+    const node = [...nodesRef.current.values()].find(n => n.hash === focusNodeHash);
+    if (!node) return;
+    // Center the viewport on the node with a nice zoom level
+    const targetScale = Math.max(world.scale.x, 0.3);
+    world.scale.set(targetScale);
+    world.x = app.screen.width / 2 - node.x * targetScale;
+    world.y = app.screen.height / 2 - node.y * targetScale;
+    saveViewport(world);
+    // Clear the focus so it can be re-triggered
+    useBuildStore.getState().focusNode(null as any);
+  }, [focusNodeHash]);
 
   // Reset viewport when requested via store
   const viewportResetCounter = useBuildStore((s) => s.viewportResetCounter);
@@ -908,7 +952,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
     const gfx = pathHighlightGfxRef.current;
     gfx.clear();
 
-    if (!selectedNode || !activeImpact || activeImpact.pathNodes.length === 0) return;
+    if (!selectedNode || !activeImpact || !activeImpact.pathNodes?.length) return;
 
     const pathSet = new Set(activeImpact.pathNodes);
     const nodes = nodesRef.current;
@@ -989,24 +1033,39 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
 
       {/* Tooltip (only when no detail panel) */}
       {tooltip && !selectedNode && (
-        <div
-          className="pointer-events-none absolute z-50 max-w-xs rounded border border-poe-border bg-poe-panel/95 p-3 shadow-lg backdrop-blur-sm"
-          style={{
-            left: Math.min(tooltip.x + 16, window.innerWidth - 280),
-            top: tooltip.y - 10,
-          }}
-        >
-          <p className={`mb-1 text-sm font-semibold ${
-            tooltip.node.type === "keystone" ? "text-poe-accent" :
-            tooltip.node.type === "notable" ? "text-yellow-300" :
-            "text-poe-text"
-          }`}>
-            {tooltip.node.name}
-          </p>
-          {tooltip.node.stats.map((stat, i) => (
-            <p key={i} className="text-xs text-gray-300">{stat}</p>
-          ))}
-        </div>
+        tooltip.jewelInfo ? (
+          /* Jewel tooltip — full item-style detail, fixed to escape any clipping */
+          <div
+            className="pointer-events-none fixed z-[9999] max-h-[80vh] w-[260px] overflow-y-auto rounded border border-poe-border shadow-2xl"
+            style={{
+              left: Math.min(tooltip.x + 16, window.innerWidth - 270),
+              top: Math.max(8, Math.min(tooltip.y - 10, window.innerHeight - 300)),
+              background: "#0d1014f8",
+            }}
+          >
+            <JewelDetailBody jewel={tooltip.jewelInfo} />
+          </div>
+        ) : (
+          /* Normal node tooltip */
+          <div
+            className="pointer-events-none absolute z-50 max-w-xs rounded border border-poe-border bg-poe-panel/95 p-3 shadow-lg backdrop-blur-sm"
+            style={{
+              left: Math.min(tooltip.x + 16, window.innerWidth - 280),
+              top: tooltip.y - 10,
+            }}
+          >
+            <p className={`mb-1 text-sm font-semibold ${
+              tooltip.node.type === "keystone" ? "text-poe-accent" :
+              tooltip.node.type === "notable" ? "text-yellow-300" :
+              "text-poe-text"
+            }`}>
+              {tooltip.node.name}
+            </p>
+            {tooltip.node.stats.map((stat, i) => (
+              <p key={i} className="text-xs text-gray-300">{stat}</p>
+            ))}
+          </div>
+        )
       )}
 
       {/* Node detail panel */}
