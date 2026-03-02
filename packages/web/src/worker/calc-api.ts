@@ -16,7 +16,7 @@ export type CalcRequest =
   | { type: "allocNode"; nodeId: number }
   | { type: "deallocNode"; nodeId: number }
   | { type: "calcNodeImpact"; nodeId: number; singleNode?: boolean }
-  | { type: "getNodePower"; stat: "dps" | "life" | "es" }
+  | { type: "getNodePower" }
   | { type: "getDisplayStats" }
   | { type: "exportBuild" }
   | { type: "exec"; code: string };
@@ -172,6 +172,24 @@ export interface EquippedItem {
 export interface DisplayStat { label: string; value: string; color?: string; }
 export type DisplayStatGroup = DisplayStat[];
 
+/** Single entry in the power report ranked list */
+export interface NodePowerEntry {
+  hash: number;
+  name: string;
+  type: string;
+  off: number;
+  def: number;
+  pathDist: number;
+  count: number;
+}
+
+/** Node power heatmap data — combined offence/defence per node */
+export interface NodePowerData {
+  nodes: Record<string, { off: number; def: number }>;
+  max: { off: number; def: number };
+  topNodes: NodePowerEntry[];
+}
+
 /** Response from allocNode / deallocNode */
 export interface AllocResult {
   success: boolean;
@@ -193,7 +211,7 @@ export type CalcResponse =
   | { type: "jewels"; data: Record<string, JewelInfo>; error?: string }
   | { type: "weaponSetNodes"; data: Record<string, number>; error?: string }
   | { type: "items"; data: { items: EquippedItem[] }; error?: string }
-  | { type: "nodePower"; data: Record<number, number>; error?: string }
+  | { type: "nodePower"; data: NodePowerData; error?: string }
   | { type: "nodeImpact"; data: NodeImpact; error?: string }
   | { type: "exportBuild"; data: { code: string }; error?: string }
   | { type: "error"; message: string }

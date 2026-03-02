@@ -776,6 +776,120 @@ function pobWebCalcNodeImpact(jsonArg)
   return dkjson.encode({ deltas = deltas, pathCount = pathCount, pathNodes = pathNodes })
 end
 
+-- Calculate combined offence/defence power for all unallocated nodes (heatmap).
+-- Uses PoB's CalculateCombinedOffDefStat for each node, cached by modKey.
+-- Returns { nodes = { [hash] = { off, def } }, max = { off, def } }
+function pobWebGetNodePower(jsonArg)
+  if not build or not build.calcsTab then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+
+  -- Ensure miscCalculator exists
+  if not build.calcsTab.miscCalculator then
+    local initOk, res = pcall(function()
+      build.calcsTab.miscCalculator = { build.calcsTab.calcs.getMiscCalculator(build) }
+    end)
+    if not initOk then
+      return dkjson.encode({ error = "getMiscCalculator init failed: " .. tostring(res) })
+    end
+  end
+  local miscOk, calcFunc, calcBase = pcall(build.calcsTab.GetMiscCalculator, build.calcsTab)
+  if not miscOk then
+    return dkjson.encode({ error = "GetMiscCalculator failed: " .. tostring(calcFunc) })
+  end
+
+  local cache = {}
+  local result = {}
+  local maxOff = 0
+  local maxDef = 0
+
+  -- Count eligible nodes first
+  local eligible = {}
+  for nodeId, node in pairs(build.spec.nodes) do
+    if not node.alloc and node.modKey and node.modKey ~= "" then
+      if node.type ~= "ClassStart" and node.type ~= "AscendClassStart" and not node.isOnlyImage then
+        eligible[#eligible + 1] = { id = nodeId, node = node }
+      end
+    end
+  end
+
+  local total = #eligible
+
+  for i, entry in ipairs(eligible) do
+    local nodeId = entry.id
+    local node = entry.node
+    local output = cache[node.modKey]
+    if not output then
+      local ok, res = pcall(calcFunc, { addNodes = { [node] = true } }, true)
+      if ok then
+        cache[node.modKey] = res
+        output = res
+      end
+    end
+    if output then
+      local ok, off, def = pcall(build.calcsTab.CalculateCombinedOffDefStat, build.calcsTab, output, calcBase)
+      if ok and type(off) == "number" and type(def) == "number" then
+        local h = node.id or nodeId
+        result[tostring(h)] = { off = off, def = def }
+        if off > maxOff then maxOff = off end
+        if def > maxDef then maxDef = def end
+      end
+    end
+  end
+
+  -- Build top nodes list sorted by (off + def) / pathDist
+  -- Group normal passives by modKey (identical mods), skip ascendancy nodes
+  local groups = {}  -- modKey -> { best entry, count }
+  for hashStr, power in pairs(result) do
+    local node = build.spec.nodes[tonumber(hashStr)]
+    if node and power.off + power.def > 0 and not node.ascendancyName then
+      local dist = node.pathDist or 1000
+      local score = (math.max(power.off, 0) + math.max(power.def, 0)) / math.max(dist, 1)
+      local isSmall = node.type ~= "Notable" and node.type ~= "Keystone" and node.type ~= "JewelSocket"
+      local groupKey = isSmall and (node.modKey or hashStr) or hashStr
+
+      local existing = groups[groupKey]
+      if not existing then
+        groups[groupKey] = {
+          hash = tonumber(hashStr),
+          name = node.dn or "?",
+          type = node.type or "Normal",
+          off = power.off,
+          def = power.def,
+          pathDist = dist,
+          score = score,
+          count = 1,
+        }
+      else
+        existing.count = existing.count + 1
+        -- Keep the one with best score (shortest path)
+        if score > existing.score then
+          existing.hash = tonumber(hashStr)
+          existing.name = node.dn or "?"
+          existing.pathDist = dist
+          existing.score = score
+          existing.off = power.off
+          existing.def = power.def
+        end
+      end
+    end
+  end
+
+  local ranked = {}
+  for _, entry in pairs(groups) do
+    ranked[#ranked + 1] = entry
+  end
+  table.sort(ranked, function(a, b) return a.score > b.score end)
+
+  local topNodes = {}
+  for i = 1, math.min(30, #ranked) do
+    local r = ranked[i]
+    topNodes[i] = { hash = r.hash, name = r.name, type = r.type, off = r.off, def = r.def, pathDist = r.pathDist, count = r.count }
+  end
+
+  return dkjson.encode({ nodes = result, max = { off = maxOff, def = maxDef }, topNodes = topNodes })
+end
+
 -- Get PoB sidebar display stats (mirrors BuildDisplayStats.lua)
 -- Returns groups of { label, value, color? } separated by spacers
 function pobWebGetDisplayStats(jsonArg)
@@ -1210,7 +1324,7 @@ function pobWebGetItemsData(jsonArg)
 
         -- Catalyst quality (jewelry)
         if item.catalyst and item.catalyst > 0 and item.catalystQuality and item.catalystQuality > 0 then
-          itemData.catalystType = catalystTypes[item.catalyst] or nil
+          itemData.catalystType = catalystTypes[item.catalyst]
           itemData.catalystQuality = item.catalystQuality
         end
 
@@ -1698,16 +1812,21 @@ self.onmessage = async (e: MessageEvent<CalcRequest & { _id?: string }>) => {
     }
 
     case "getNodePower": {
+      const emptyPower = { nodes: {}, max: { off: 0, def: 0 }, topNodes: [] };
       if (!initialized) {
-        respond(_id, { type: "nodePower", data: {}, error: "Engine not initialized" });
+        respond(_id, { type: "nodePower", data: emptyPower, error: "Engine not initialized" });
         break;
       }
       try {
-        const result = bridge_call_json("pobWebGetNodePower", JSON.stringify({ stat: msg.stat }));
+        const result = bridge_call_json("pobWebGetNodePower", "{}");
         const data = JSON.parse(result);
-        respond(_id, { type: "nodePower", data });
+        if (data.error) {
+          respond(_id, { type: "nodePower", data: emptyPower, error: data.error });
+        } else {
+          respond(_id, { type: "nodePower", data });
+        }
       } catch (e) {
-        respond(_id, { type: "nodePower", data: {}, error: String(e) });
+        respond(_id, { type: "nodePower", data: emptyPower, error: String(e) });
       }
       break;
     }

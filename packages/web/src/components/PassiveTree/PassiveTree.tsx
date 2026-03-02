@@ -3,7 +3,7 @@ import { Application, Container, Graphics, Sprite, TilingSprite } from "pixi.js"
 import { useBuildStore } from "@/store/build-store";
 import type { ProcessedNode } from "./tree-types";
 import type { TreeData } from "./tree-types";
-import type { NodeImpact } from "@/worker/calc-api";
+import type { NodeImpact, NodePowerData } from "@/worker/calc-api";
 import type { CalcClient } from "@/worker/calc-client";
 import { processTree } from "./tree-processor";
 import { encodeBuildCode } from "@/worker/build-decoder";
@@ -54,10 +54,6 @@ const COLORS = {
   mastery: 0x6a4a8a,
 };
 
-const HEATMAP_COLORS = [
-  0x0000ff, 0x00ffff, 0x00ff00, 0xffff00, 0xff8800, 0xff0000,
-];
-
 // Node sizes in tree coordinate units (from PassiveTree.lua GetNodeTargetSize × 2)
 const FRAME_SIZE: Record<string, number> = {
   normal: 108,
@@ -81,7 +77,7 @@ const ICON_SIZE: Record<string, number> = {
 
 interface Props {
   treeData: TreeData | null;
-  heatmapData?: Record<number, number>;
+  heatmapData?: NodePowerData | null;
   searchQuery?: string;
   calcClient?: CalcClient | null;
 }
@@ -115,6 +111,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
   const [impactLoading, setImpactLoading] = useState(false);
   const [impactSingleMode, setImpactSingleMode] = useState(false);
   const nodeTappedRef = useRef(false);
+  const [powerListMinimized, setPowerListMinimized] = useState(false);
 
   const allocatedNodes = useBuildStore((s) => s.allocatedNodes);
   const setAllocatedNodes = useBuildStore((s) => s.setAllocatedNodes);
@@ -188,6 +185,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       world.y = my - (my - world.y) * (newScale / oldScale);
       world.scale.set(newScale);
       redrawSearchRef.current();
+      redrawHeatmapRef.current();
       saveViewport(world);
     };
 
@@ -291,6 +289,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
           world.y = my - (my - world.y) * (newScale / oldScale);
           world.scale.set(newScale);
           redrawSearchRef.current();
+          redrawHeatmapRef.current();
         }
       }
 
@@ -570,6 +569,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
 
       // Node layer
       const nodeLayer = new Container();
+      nodeLayer.label = "__node_layer";
 
       for (const [id, node] of nodes) {
         if (node.type === "ascendancyStart") continue;
@@ -624,6 +624,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
           selectedNodeRef.current = node;
           setSelectedNode(node);
           setNodeImpact(null);
+          setPowerListMinimized(true);
         });
 
         nodeLayer.addChild(nodeContainer);
@@ -852,31 +853,89 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
     }
   }, [allocatedNodes, createNodeVisual, weaponSetNodes, jewelData]);
 
-  // Heatmap overlay
-  useEffect(() => {
-    if (!heatmapData || !worldRef.current) return;
-    const values = Object.values(heatmapData);
-    if (values.length === 0) return;
-    const maxVal = Math.max(...values);
-    if (maxVal === 0) return;
+  // Heatmap overlay — zoom-independent rings like search highlights
+  const heatmapGfxRef = useRef<Graphics | null>(null);
+  const heatmapNodesRef = useRef<{ x: number; y: number; r: number; color: number; intensity: number }[]>([]);
 
+  // Precompute heatmap node data when heatmapData changes
+  useEffect(() => {
+    heatmapNodesRef.current = [];
+
+    if (!heatmapData || Object.keys(heatmapData.nodes).length === 0) return;
+    const { nodes: powerNodes, max } = heatmapData;
+    if (max.off <= 0 && max.def <= 0) return;
+
+    const entries: typeof heatmapNodesRef.current = [];
     for (const [id, container] of nodeGfxRef.current) {
       const node = nodesRef.current.get(id);
       if (!node) continue;
-      const power = heatmapData[node.hash] ?? 0;
-      if (power <= 0) continue;
+      if (allocatedNodes.has(node.hash)) continue;
+      if (!container.visible) continue;
+      if (node.type === "classStart" || node.type === "mastery") continue;
 
-      const t = Math.min(power / maxVal, 1);
-      const colorIdx = Math.min(Math.floor(t * (HEATMAP_COLORS.length - 1)), HEATMAP_COLORS.length - 1);
-      const heatColor = HEATMAP_COLORS[colorIdx]!;
+      const power = powerNodes[String(node.hash)];
+      if (!power) continue;
 
-      const ring = new Graphics();
-      const r = (FRAME_SIZE[node.type] ?? 26) / 2 + 4;
-      ring.circle(0, 0, r);
-      ring.stroke({ color: heatColor, width: 2, alpha: 0.3 + t * 0.7 });
-      container.addChild(ring);
+      const off = Math.max(power.off, 0);
+      const def = Math.max(power.def, 0);
+      if (off === 0 && def === 0) continue;
+
+      const dpsCol = max.off > 0 ? Math.min(Math.sqrt(off / max.off * 1.5), 1) : 0;
+      const defCol = max.def > 0 ? Math.min(Math.sqrt(def / max.def * 1.5), 1) : 0;
+      const mixCol = (Math.max(dpsCol - 0.5, 0) + Math.max(defCol - 0.5, 0)) / 2;
+
+      const r = Math.round(dpsCol * 255);
+      const g = Math.round(mixCol * 255);
+      const b = Math.round(defCol * 255);
+
+      entries.push({
+        x: node.x,
+        y: node.y,
+        r: (FRAME_SIZE[node.type] ?? 26) / 2 + 12,
+        color: (r << 16) | (g << 8) | b,
+        intensity: Math.max(dpsCol, defCol),
+      });
     }
-  }, [heatmapData]);
+    heatmapNodesRef.current = entries;
+  }, [heatmapData, allocatedNodes]);
+
+  const redrawHeatmap = useCallback(() => {
+    const gfx = heatmapGfxRef.current;
+    const world = worldRef.current;
+    if (!gfx || !world) return;
+    gfx.clear();
+    const entries = heatmapNodesRef.current;
+    if (entries.length === 0) return;
+    const scale = world.scale.x || 1;
+    const strokeWidth = 3 / scale;
+    for (const m of entries) {
+      gfx.circle(m.x, m.y, m.r);
+      gfx.stroke({ color: m.color, width: strokeWidth, alpha: 0.7 + m.intensity * 0.3 });
+    }
+  }, []);
+  const redrawHeatmapRef = useRef(redrawHeatmap);
+  redrawHeatmapRef.current = redrawHeatmap;
+
+  // Create/destroy heatmap layer and trigger initial draw
+  useEffect(() => {
+    const world = worldRef.current;
+    if (!world) return;
+
+    // Remove previous heatmap layer
+    if (heatmapGfxRef.current) {
+      heatmapGfxRef.current.clear();
+      heatmapGfxRef.current.removeFromParent();
+      heatmapGfxRef.current = null;
+    }
+
+    if (heatmapNodesRef.current.length === 0) return;
+
+    const gfx = new Graphics();
+    gfx.label = "__heatmap_layer";
+    world.addChild(gfx);
+    heatmapGfxRef.current = gfx;
+    redrawHeatmapRef.current();
+  }, [heatmapData, allocatedNodes]);
 
   // Redraw search highlights at current zoom level
   const redrawSearchHighlights = useCallback(() => {
@@ -1064,6 +1123,64 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
             {tooltip.node.stats.map((stat, i) => (
               <p key={i} className="text-xs text-gray-300">{stat}</p>
             ))}
+          </div>
+        )
+      )}
+
+      {/* Power report list */}
+      {heatmapData?.topNodes && heatmapData.topNodes.length > 0 && (
+        powerListMinimized ? (
+          <button
+            className="absolute bottom-3 right-3 z-40 rounded border border-poe-border bg-poe-panel/90 px-3 py-1.5 text-xs text-poe-accent shadow-lg backdrop-blur-sm"
+            onClick={() => setPowerListMinimized(false)}
+          >
+            Top Nodes ({heatmapData.topNodes.length})
+          </button>
+        ) : (
+          <div
+            className="absolute bottom-3 right-3 z-40 max-h-[50vh] w-56 overflow-y-auto rounded border border-poe-border bg-poe-panel/95 shadow-lg backdrop-blur-sm sm:w-64 sm:max-h-[60vh]"
+          >
+            <button
+              className="sticky top-0 z-10 flex w-full items-center justify-between border-b border-poe-border bg-poe-panel px-2 py-1.5 sm:px-3 sm:py-2"
+              onClick={() => setPowerListMinimized(true)}
+            >
+              <span className="text-[11px] font-bold text-poe-accent sm:text-xs">Top Nodes</span>
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-gray-500">
+                <path d="M2 4L5 7L8 4" />
+              </svg>
+            </button>
+            <div className="divide-y divide-poe-border/30">
+              {heatmapData.topNodes.map((entry, i) => {
+                const off = Math.max(entry.off, 0);
+                const def = Math.max(entry.def, 0);
+                const total = off + def;
+                const perPoint = total / Math.max(entry.pathDist, 1);
+                const offRatio = total > 0 ? off / total : 0;
+                const colorClass = offRatio > 0.7 ? "text-red-400" : offRatio < 0.3 ? "text-blue-400" : "text-yellow-400";
+                const typeLabel = entry.type === "Notable" ? "N" : entry.type === "Keystone" ? "K" : "";
+                return (
+                  <button
+                    key={entry.hash}
+                    className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] hover:bg-white/5 active:bg-white/10 sm:gap-2 sm:px-3 sm:py-1.5 sm:text-xs"
+                    onClick={() => {
+                      useBuildStore.getState().focusNode(entry.hash);
+                      setPowerListMinimized(true);
+                    }}
+                  >
+                    <span className="w-3 shrink-0 text-center text-[9px] text-gray-600 sm:w-4 sm:text-[10px]">{i + 1}</span>
+                    <span className="min-w-0 flex-1 truncate text-gray-200">
+                      {typeLabel ? <span className="mr-1 text-yellow-500">{typeLabel}</span> : null}
+                      {entry.name}
+                      {entry.count > 1 && <span className="ml-1 text-[9px] text-gray-500 sm:text-[10px]">x{entry.count}</span>}
+                    </span>
+                    <span className={`shrink-0 font-mono ${colorClass}`}>
+                      {perPoint >= 0.01 ? perPoint.toFixed(2) : "<.01"}
+                    </span>
+                    <span className="shrink-0 text-[9px] text-gray-600 sm:text-[10px]">{entry.pathDist}pt</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )
       )}

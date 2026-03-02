@@ -11,6 +11,7 @@ import type { TreeData } from "@/components/PassiveTree/tree-types";
 import { CalcClient } from "@/worker/calc-client";
 import { decodeBuildCode, parseBuildXml, parsePoeNinjaUrl, fetchPoeNinjaBuild } from "@/worker/build-decoder";
 import { resolveItemImages, resolveRuneImages, resolveJewelImages } from "@/utils/item-images";
+import type { NodePowerData } from "@/worker/calc-api";
 
 // Persist/restore lightweight UI state across iOS background kills
 const SESSION_KEY = "pob-ui-state";
@@ -59,6 +60,42 @@ export function App() {
   const setEquippedItems = useBuildStore((s) => s.setEquippedItems);
   const [engineStatus, setEngineStatus] = useState<string>("idle");
   const [engineLogs, setEngineLogs] = useState<string[]>([]);
+  const [heatmapData, setHeatmapDataRaw] = useState<NodePowerData | null>(null);
+  const heatmapFingerprintRef = useRef<string>("");
+  const getHeatmapFingerprint = useCallback(() => {
+    const code = useBuildStore.getState().originalImportCode;
+    const nodes = useBuildStore.getState().allocatedNodes;
+    return code + ":" + nodes.size;
+  }, []);
+  const setHeatmapData = useCallback((data: NodePowerData | null) => {
+    setHeatmapDataRaw(data);
+    try {
+      if (data) {
+        const fp = getHeatmapFingerprint();
+        heatmapFingerprintRef.current = fp;
+        localStorage.setItem("pob-node-power", JSON.stringify({ fp, data }));
+      } else {
+        heatmapFingerprintRef.current = "";
+        localStorage.removeItem("pob-node-power");
+      }
+    } catch {}
+  }, [getHeatmapFingerprint]);
+  // Restore cached power data only if fingerprint matches current build state
+  const restoreCachedHeatmap = useCallback(() => {
+    try {
+      const cached = localStorage.getItem("pob-node-power");
+      if (!cached) return;
+      const { fp, data } = JSON.parse(cached);
+      if (fp === getHeatmapFingerprint()) {
+        heatmapFingerprintRef.current = fp;
+        setHeatmapDataRaw(data);
+      } else {
+        localStorage.removeItem("pob-node-power");
+      }
+    } catch {}
+  }, [getHeatmapFingerprint]);
+  const [heatmapLoading, setHeatmapLoading] = useState(false);
+  const allocatedNodes = useBuildStore((s) => s.allocatedNodes);
   const calcClientRef = useRef<CalcClient | null>(null);
   const pendingBuildRef = useRef<string | null>(null);
 
@@ -82,6 +119,7 @@ export function App() {
   }, []);
 
   const loadBuildInEngine = useCallback(async (client: CalcClient, xml: string) => {
+    setHeatmapDataRaw(null); // Clear display without wiping cache (restoreCachedHeatmap checks later)
     setCalcStatus("loading");
     const { success, error } = await client.loadBuild(xml);
     if (!success) {
@@ -208,7 +246,10 @@ export function App() {
       movementSpeed: defence.MovementSpeedMod || 0,
     };
     setDefenceStats(d);
-  }, [setCalcStatus, setStats, setSkillsData, setDefenceStats, setCalcDisplay, setDisplayStats, setJewelData, setWeaponSetNodes, setEquippedItems]);
+
+    // Restore cached heatmap if fingerprint still matches
+    restoreCachedHeatmap();
+  }, [setCalcStatus, setStats, setSkillsData, setDefenceStats, setCalcDisplay, setDisplayStats, setJewelData, setWeaponSetNodes, setEquippedItems, restoreCachedHeatmap]);
 
   // Auto-init engine on mount
   useEffect(() => {
@@ -265,6 +306,14 @@ export function App() {
   useEffect(() => {
     if (build) setSidePanelRaw((prev) => prev === "import" ? "stats" : prev);
   }, [build]);
+
+  // Clear heatmap when tree changes (node alloc/dealloc invalidates power data)
+  useEffect(() => {
+    // Only clear if the fingerprint no longer matches (i.e. actual tree change, not initial load)
+    if (heatmapFingerprintRef.current && getHeatmapFingerprint() !== heatmapFingerprintRef.current) {
+      setHeatmapData(null);
+    }
+  }, [allocatedNodes, setHeatmapData, getHeatmapFingerprint]);
 
   return (
     <div className="relative flex h-[100dvh] w-screen overflow-hidden bg-poe-bg text-poe-text">
@@ -341,6 +390,7 @@ export function App() {
         ) : (
           <PassiveTree
             treeData={treeData}
+            heatmapData={heatmapData}
             searchQuery={treeSearch || undefined}
             calcClient={calcClientRef.current}
           />
@@ -401,6 +451,38 @@ export function App() {
                  calcStatus === "loading" ? "Loading..." :
                  calcStatus === "error" ? "Calc Error" : ""}
               </span>
+            )}
+            {build && calcStatus === "ready" && (
+              <button
+                className={`flex h-7 items-center gap-1 rounded px-2 text-xs backdrop-blur-sm transition ${
+                  heatmapData ? "bg-poe-accent/20 text-poe-accent" : "bg-poe-panel/60 text-gray-500 hover:text-gray-300"
+                } ${heatmapLoading ? "animate-pulse" : ""}`}
+                onClick={async () => {
+                  if (heatmapData) {
+                    setHeatmapData(null);
+                    return;
+                  }
+                  const client = calcClientRef.current;
+                  if (!client) return;
+                  setHeatmapLoading(true);
+                  try {
+                    const data = await client.getNodePower();
+                    setHeatmapData(data);
+                  } catch (e) {
+                    console.error("[PoB] getNodePower failed:", e);
+                  } finally {
+                    setHeatmapLoading(false);
+                  }
+                }}
+                title={heatmapData ? "Hide node power heatmap" : "Show node power heatmap (offence=red, defence=blue)"}
+                disabled={heatmapLoading}
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <circle cx="6" cy="6" r="4.5" />
+                  <path d="M6 3v3l2 1" />
+                </svg>
+                {heatmapLoading ? "..." : "Power"}
+              </button>
             )}
             <button
               className="flex h-7 w-7 items-center justify-center rounded bg-poe-panel/60 text-gray-600 backdrop-blur-sm transition hover:text-gray-300"

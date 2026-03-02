@@ -2,7 +2,7 @@
  * Client-side wrapper for the PoB calculation Web Worker.
  * Provides a promise-based API for sending commands and receiving results.
  */
-import type { CalcRequest, CalcResponse, SkillsData, SwitchSkillResult, NodeImpact, AllocResult, CalcSection, JewelInfo, EquippedItem, DisplayStatGroup } from "./calc-api";
+import type { CalcRequest, CalcResponse, SkillsData, SwitchSkillResult, NodeImpact, AllocResult, CalcSection, JewelInfo, EquippedItem, DisplayStatGroup, NodePowerData } from "./calc-api";
 
 export class CalcClient {
   private worker: Worker;
@@ -123,10 +123,10 @@ export class CalcClient {
     return { deltas: {}, pathCount: 1, pathNodes: [] };
   }
 
-  async getNodePower(stat: "dps" | "life" | "es"): Promise<Record<number, number>> {
-    const res = await this.send({ type: "getNodePower", stat });
+  async getNodePower(): Promise<NodePowerData> {
+    const res = await this.send({ type: "getNodePower" });
     if (res.type === "nodePower") return res.data;
-    return {};
+    return { nodes: {}, max: { off: 0, def: 0 }, topNodes: [] };
   }
 
   async exportBuild(): Promise<string> {
