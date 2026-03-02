@@ -28,29 +28,11 @@ export function ConfigPanel({ calcClient, onConfigChange }: ConfigPanelProps) {
     } catch {}
   }, []);
 
-  // Restore saved config on build load
-  const restoredRef = useRef(false);
+  // Fetch config whenever build is ready (including tab re-opens)
   useEffect(() => {
     if (!calcClient || !build) return;
     if (calcStatus !== "ready" && calcStatus !== "error") return;
-    if (!restoredRef.current) {
-      restoredRef.current = true;
-      (async () => {
-        try {
-          const saved = localStorage.getItem("pob-config");
-          if (saved) {
-            const vals: Record<string, boolean | number | string> = JSON.parse(saved);
-            for (const [k, v] of Object.entries(vals)) {
-              await calcClient.setConfig(k, v);
-            }
-          }
-        } catch {}
-        const data = await calcClient.getConfigOptions();
-        setConfigData(data);
-      })();
-    } else {
-      calcClient.getConfigOptions().then(setConfigData).catch(console.error);
-    }
+    calcClient.getConfigOptions().then(setConfigData).catch(console.error);
   }, [calcClient, calcStatus, build]);
 
   // Send a config change to Lua and refresh everything

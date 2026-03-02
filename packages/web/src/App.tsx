@@ -128,6 +128,17 @@ export function App() {
       setCalcStatus("error", error || "Failed to load build in engine");
       return;
     }
+    // Restore saved config before first calculation
+    try {
+      const savedConfig = localStorage.getItem("pob-config");
+      if (savedConfig) {
+        const vals: Record<string, boolean | number | string> = JSON.parse(savedConfig);
+        for (const [k, v] of Object.entries(vals)) {
+          await client.setConfig(k, v);
+        }
+      }
+    } catch {}
+
     setCalcStatus("calculating");
 
     // Fetch stats, skills, defence, calcDisplay, jewels, weapon set nodes, and items independently
