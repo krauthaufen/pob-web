@@ -7,6 +7,7 @@ import type { NodeImpact, NodePowerData } from "@/worker/calc-api";
 import type { CalcClient } from "@/worker/calc-client";
 import { processTree } from "./tree-processor";
 import { encodeBuildCode } from "@/worker/build-decoder";
+import { isTouchDevice } from "@/utils/is-touch";
 import { NodeDetailPanel } from "./NodeDetailPanel";
 import { JewelDetailBody } from "@/components/StatsPanel/InventoryPanel";
 import {
@@ -595,7 +596,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
 
         nodeContainer.on("pointerenter", (e: any) => {
           // No hover tooltip for touch input
-          if (e.pointerType === "touch") return;
+          if (e.pointerType === "touch" || isTouchDevice()) return;
           // Check if pointer is occluded by an HTML panel above the canvas
           const ne = e.nativeEvent;
           if (ne && ne.clientX != null) {
@@ -611,7 +612,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
           }
         });
         nodeContainer.on("pointerleave", (e: any) => {
-          if (e.pointerType === "touch") return;
+          if (e.pointerType === "touch" || isTouchDevice()) return;
           setHoveredNode(null);
           setTooltip(null);
         });

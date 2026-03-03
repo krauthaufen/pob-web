@@ -3,6 +3,7 @@ import { useBuildStore } from "@/store/build-store";
 import type { GemInfo, SocketGroupGems, AvailableGem } from "@/worker/calc-api";
 import type { CalcClient } from "@/worker/calc-client";
 import { resolveGemImages } from "@/utils/item-images";
+import { isTouchDevice } from "@/utils/is-touch";
 
 const GEM_COLORS: Record<string, string> = {
   str: "#c83030",
@@ -246,6 +247,7 @@ function GemRow({
   onHover,
   onHoverEnd,
   onClick,
+  onToggle,
 }: {
   gem: GemInfo;
   imageUrl?: string;
@@ -253,56 +255,76 @@ function GemRow({
   onHover: (rect: DOMRect) => void;
   onHoverEnd: () => void;
   onClick: () => void;
+  onToggle?: (enabled: boolean) => void;
 }) {
   const color = GEM_COLORS[gem.color] ?? "#888";
-  const ref = useRef<HTMLButtonElement>(null);
+  const ref = useRef<HTMLDivElement>(null);
   const dimmed = !gem.enabled;
   const iconSize = isSupport ? 24 : 28;
 
   return (
-    <button
+    <div
       ref={ref}
       className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left transition hover:bg-white/5"
-      style={{ opacity: dimmed ? 0.35 : 1, paddingLeft: isSupport ? 20 : 4 }}
-      onClick={onClick}
-      onMouseEnter={() => { if (ref.current) onHover(ref.current.getBoundingClientRect()); }}
-      onMouseLeave={onHoverEnd}
+      style={{ paddingLeft: isSupport ? 20 : 4 }}
+      onPointerEnter={() => { if (isTouchDevice()) return; if (ref.current) onHover(ref.current.getBoundingClientRect()); }}
+      onPointerLeave={() => { if (isTouchDevice()) return; onHoverEnd(); }}
     >
-      <div
-        className="flex shrink-0 items-center justify-center overflow-hidden rounded-full"
-        style={{
-          width: iconSize,
-          height: iconSize,
-          border: `2px solid ${color}`,
-          background: "#121619",
-        }}
+      <button
+        className="flex flex-1 items-center gap-2 min-w-0"
+        style={{ opacity: dimmed ? 0.35 : 1 }}
+        onClick={onClick}
       >
-        {imageUrl ? (
-          <img
-            src={imageUrl}
-            alt={gem.name}
-            className="h-full w-full rounded-full object-cover"
-            loading="lazy"
-          />
-        ) : (
-          <svg width={iconSize * 0.45} height={iconSize * 0.45} viewBox="0 0 16 16" fill={color} opacity="0.6">
-            <path d="M8 1L14 8L8 15L2 8Z" />
-          </svg>
-        )}
-      </div>
-      <span
-        className="min-w-0 flex-1 truncate text-xs"
-        style={{ color: dimmed ? "#555" : color }}
-      >
-        {gem.name}
-      </span>
-      {!isSupport && (
-        <span className="shrink-0 text-[10px] text-gray-600">
-          {gem.level}
-          {gem.quality > 0 && <span style={{ color: "#8888ff" }}> /{gem.quality}</span>}
+        <div
+          className="flex shrink-0 items-center justify-center overflow-hidden rounded-full"
+          style={{
+            width: iconSize,
+            height: iconSize,
+            border: `2px solid ${color}`,
+            background: "#121619",
+          }}
+        >
+          {imageUrl ? (
+            <img
+              src={imageUrl}
+              alt={gem.name}
+              className="h-full w-full rounded-full object-cover"
+              loading="lazy"
+            />
+          ) : (
+            <svg width={iconSize * 0.45} height={iconSize * 0.45} viewBox="0 0 16 16" fill={color} opacity="0.6">
+              <path d="M8 1L14 8L8 15L2 8Z" />
+            </svg>
+          )}
+        </div>
+        <span
+          className="min-w-0 flex-1 truncate text-xs text-left"
+          style={{ color: dimmed ? "#555" : color }}
+        >
+          {gem.name}
         </span>
+        {!isSupport && (
+          <span className="shrink-0 text-[10px] text-gray-600">
+            {gem.level}
+            {gem.quality > 0 && <span style={{ color: "#8888ff" }}> /{gem.quality}</span>}
+          </span>
+        )}
+      </button>
+      {onToggle && (
+        <button
+          className={`shrink-0 flex items-center justify-center w-8 h-7 rounded text-[10px] transition ${
+            gem.enabled
+              ? "text-green-500/70 hover:text-green-400 active:bg-green-900/30"
+              : "text-red-500/70 hover:text-red-400 active:bg-red-900/30"
+          }`}
+          onClick={(e) => { e.stopPropagation(); onToggle(!gem.enabled); }}
+          onPointerDown={(e) => e.stopPropagation()}
+          title={gem.enabled ? "Disable" : "Enable"}
+        >
+          {gem.enabled ? "ON" : "OFF"}
+        </button>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -312,12 +334,14 @@ function SocketGroupRow({
   onGemHover,
   onGemHoverEnd,
   onGemClick,
+  onGemToggle,
 }: {
   group: SocketGroupGems;
   gemImageUrls: Record<string, string>;
   onGemHover: (gem: GemInfo, rect: DOMRect) => void;
   onGemHoverEnd: () => void;
   onGemClick: (gem: GemInfo, groupIndex: number, gemIndex: number) => void;
+  onGemToggle?: (groupIndex: number, gemIndex: number, enabled: boolean) => void;
 }) {
   const dimmed = !group.enabled;
 
@@ -352,6 +376,7 @@ function SocketGroupRow({
             onHover={(rect) => onGemHover(gem, rect)}
             onHoverEnd={onGemHoverEnd}
             onClick={() => onGemClick(gem, group.index, i + 1)}
+            onToggle={onGemToggle ? (enabled) => onGemToggle(group.index, i + 1, enabled) : undefined}
           />
         ))}
       </div>
@@ -374,6 +399,19 @@ export function GemsPanel({ calcClient }: { calcClient?: CalcClient | null }) {
   const [pickerSupports, setPickerSupports] = useState<AvailableGem[]>([]);
   const [dpsMap, setDpsMap] = useState<Record<string, number> | null>(null);
   const [dpsLoading, setDpsLoading] = useState(false);
+
+  const handleToggle = useCallback(async (groupIndex: number, gemIndex: number, enabled: boolean) => {
+    if (!calcClient) return;
+    try {
+      const result = await calcClient.toggleGem(groupIndex, gemIndex, enabled);
+      const store = useBuildStore.getState();
+      store.setGemsData(result.gems);
+      store.setSkillsData(result.skills);
+      store.setDisplayStats(result.displayStats);
+    } catch (e) {
+      console.error("[PoB] Toggle gem failed:", e);
+    }
+  }, [calcClient]);
 
   const handleReplace = useCallback(async (gem: AvailableGem) => {
     if (!calcClient || !selected) return;
@@ -456,6 +494,7 @@ export function GemsPanel({ calcClient }: { calcClient?: CalcClient | null }) {
               setSelected({ gem, groupIndex, gemIndex });
               setShowPicker(false);
             }}
+            onGemToggle={calcClient ? handleToggle : undefined}
           />
         ))}
       </div>
