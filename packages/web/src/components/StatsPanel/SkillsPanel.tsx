@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useBuildStore } from "@/store/build-store";
 import type { CalcClient } from "@/worker/calc-client";
-import type { MainSkillStats, SkillDpsEntry, CalcSection, CalcStatRow } from "@/worker/calc-api";
+import type { MainSkillStats, SkillDpsEntry, CalcSection, CalcStatRow, SkillPartInfo } from "@/worker/calc-api";
 
 function formatNum(value: number): string {
   if (value >= 1000000) return `${(value / 1000000).toFixed(2)}M`;
@@ -78,6 +78,8 @@ export function SkillsPanel({ calcClient }: SkillsPanelProps) {
   const [skillDps, setSkillDps] = useState<SkillDpsEntry[]>([]);
   const [fullDps, setFullDps] = useState(0);
   const [switching, setSwitching] = useState(false);
+  const [parts, setParts] = useState<SkillPartInfo[]>([]);
+  const [selectedPart, setSelectedPart] = useState(1);
 
   // Initialize from skillsData when it arrives
   useEffect(() => {
@@ -85,6 +87,8 @@ export function SkillsPanel({ calcClient }: SkillsPanelProps) {
     setMainStats(skillsData.mainSkillStats ?? null);
     setSkillDps(skillsData.skills);
     setFullDps(skillsData.fullDps);
+    setParts(skillsData.parts ?? []);
+    setSelectedPart(skillsData.selectedPart ?? 1);
   }, [skillsData]);
 
   const switchSkill = useCallback(async (index: number) => {
@@ -96,7 +100,8 @@ export function SkillsPanel({ calcClient }: SkillsPanelProps) {
       setMainStats(result.stats);
       setSkillDps(result.skills);
       setFullDps(result.fullDps);
-      // Update store's calcDisplay so all panels react
+      setParts(result.parts ?? []);
+      setSelectedPart(result.selectedPart ?? 1);
       if (result.display) {
         setCalcDisplay(result.display);
       }
@@ -107,6 +112,27 @@ export function SkillsPanel({ calcClient }: SkillsPanelProps) {
       setSwitching(false);
     }
   }, [calcClient, switching, setCalcDisplay, setDisplayStats, setSelectedSkillGroup]);
+
+  const switchPart = useCallback(async (partIndex: number) => {
+    if (!calcClient || switching) return;
+    setSelectedPart(partIndex);
+    setSwitching(true);
+    try {
+      const result = await calcClient.switchSkillPart(partIndex);
+      setMainStats(result.stats);
+      setSkillDps(result.skills);
+      setFullDps(result.fullDps);
+      if (result.parts) setParts(result.parts);
+      if (result.display) {
+        setCalcDisplay(result.display);
+      }
+      calcClient.getDisplayStats().then(setDisplayStats).catch(() => {});
+    } catch (e) {
+      console.error("[PoB] Switch skill part failed:", e);
+    } finally {
+      setSwitching(false);
+    }
+  }, [calcClient, switching, setCalcDisplay, setDisplayStats]);
 
   if (!build) {
     return (
@@ -165,6 +191,26 @@ export function SkillsPanel({ calcClient }: SkillsPanelProps) {
           })}
         </select>
       </div>
+
+      {/* Skill part tabs (e.g. Arrow / Shards for Ice Shot) */}
+      {parts.length > 1 && (
+        <div className="flex gap-1">
+          {parts.map((part) => (
+            <button
+              key={part.index}
+              className={`rounded px-2.5 py-1 text-xs transition ${
+                part.index === selectedPart
+                  ? "bg-poe-accent/20 text-poe-accent border border-poe-accent/40"
+                  : "bg-poe-bg text-gray-400 border border-poe-border hover:text-gray-300"
+              }`}
+              onClick={() => switchPart(part.index)}
+              disabled={switching}
+            >
+              {part.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* DPS headline */}
       {mainStats && (mainStats.CombinedDPS > 0 || mainStats.TotalDPS > 0) && (

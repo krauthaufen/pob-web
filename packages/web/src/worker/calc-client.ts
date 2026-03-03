@@ -2,7 +2,7 @@
  * Client-side wrapper for the PoB calculation Web Worker.
  * Provides a promise-based API for sending commands and receiving results.
  */
-import type { CalcRequest, CalcResponse, SkillsData, SwitchSkillResult, NodeImpact, AllocResult, CalcSection, JewelInfo, EquippedItem, DisplayStatGroup, NodePowerData, ConfigData, GemsData, AvailableGem } from "./calc-api";
+import type { CalcRequest, CalcResponse, SkillsData, SwitchSkillResult, NodeImpact, AllocResult, CalcSection, JewelInfo, EquippedItem, DisplayStatGroup, NodePowerData, ConfigData, GemsData, AvailableGem, SlotItemEntry } from "./calc-api";
 
 export class CalcClient {
   private worker: Worker;
@@ -175,10 +175,40 @@ export class CalcClient {
     return { baseDps: 0, results: [] };
   }
 
+  async toggleGem(groupIndex: number, gemIndex: number, enabled: boolean): Promise<{ gems: GemsData; skills: SkillsData; displayStats: DisplayStatGroup[] }> {
+    const res = await this.send({ type: "toggleGem", groupIndex, gemIndex, enabled });
+    if (res.type === "toggleGem") return res.data;
+    return { gems: [], skills: { mainSocketGroup: 1, fullDps: 0, skills: [], groups: [] }, displayStats: [] };
+  }
+
   async replaceGem(groupIndex: number, gemIndex: number, gemId: string | null): Promise<{ gems: GemsData; skills: SkillsData; displayStats: DisplayStatGroup[] }> {
     const res = await this.send({ type: "replaceGem", groupIndex, gemIndex, gemId });
     if (res.type === "replaceGem") return res.data;
     return { gems: [], skills: { mainSocketGroup: 1, fullDps: 0, skills: [], groups: [] }, displayStats: [] };
+  }
+
+  async switchSkillPart(partIndex: number): Promise<SwitchSkillResult> {
+    const res = await this.send({ type: "switchSkillPart", partIndex });
+    if (res.type === "switchSkillPart") return res.data;
+    return { stats: {} as any, fullDps: 0, skills: [] };
+  }
+
+  async addCustomItem(rawText: string): Promise<{ success: boolean; error?: string; itemId?: number; primarySlot?: string }> {
+    const res = await this.send({ type: "addCustomItem", rawText });
+    if (res.type === "addCustomItem") return res.data;
+    return { success: false, error: "unexpected response" };
+  }
+
+  async getSlotItems(slotName: string): Promise<SlotItemEntry[]> {
+    const res = await this.send({ type: "getSlotItems", slotName });
+    if (res.type === "slotItems") return res.data;
+    return [];
+  }
+
+  async equipItem(itemId: number, slotName: string): Promise<{ items: EquippedItem[] }> {
+    const res = await this.send({ type: "equipItem", itemId, slotName });
+    if (res.type === "equipItem") return res.data;
+    return { items: [] };
   }
 
   async exportBuild(): Promise<string> {

@@ -511,6 +511,22 @@ function pobWebGetSkillsData(jsonArg)
     end
   end
 
+  -- Skill stat sets (e.g. "Arrow" / "Shards" for Ice Shot)
+  local mainGroup = skillsTab and skillsTab.socketGroupList[build.mainSocketGroup]
+  if mainGroup and mainGroup.displaySkillList then
+    local mainActiveSkill = mainGroup.mainActiveSkill or 1
+    local activeSkill = mainGroup.displaySkillList[mainActiveSkill]
+    local activeEffect = activeSkill and activeSkill.activeEffect
+    local statSets = activeEffect and activeEffect.grantedEffect and activeEffect.grantedEffect.statSets
+    if statSets and #statSets > 1 then
+      result.parts = {}
+      for i, ss in ipairs(statSets) do
+        table.insert(result.parts, { index = i, name = ss.label or ("Part " .. i) })
+      end
+      result.selectedPart = activeEffect.statSet and activeEffect.statSet.index or 1
+    end
+  end
+
   return dkjson.encode(result)
 end
 
@@ -602,11 +618,151 @@ function pobWebSwitchMainSkill(jsonArg)
   -- Also compute CalcDisplay for all panels to react
   local displayData = dkjson.decode(pobWebGetCalcDisplay("{}"))
 
+  -- Skill stat sets info
+  local partsInfo = nil
+  local selectedPart = nil
+  local mainGroup = build.skillsTab and build.skillsTab.socketGroupList[build.mainSocketGroup]
+  if mainGroup and mainGroup.displaySkillList then
+    local mainActiveSkill = mainGroup.mainActiveSkill or 1
+    local activeSkill = mainGroup.displaySkillList[mainActiveSkill]
+    local activeEffect = activeSkill and activeSkill.activeEffect
+    local statSets = activeEffect and activeEffect.grantedEffect and activeEffect.grantedEffect.statSets
+    if statSets and #statSets > 1 then
+      partsInfo = {}
+      for i, ss in ipairs(statSets) do
+        table.insert(partsInfo, { index = i, name = ss.label or ("Part " .. i) })
+      end
+      selectedPart = activeEffect.statSet and activeEffect.statSet.index or 1
+    end
+  end
+
   return dkjson.encode({
     stats = stats,
     fullDps = output.FullDPS or output.CombinedDPS or 0,
     skills = skillDps,
     display = displayData and displayData.sections or {},
+    parts = partsInfo,
+    selectedPart = selectedPart,
+  })
+end
+
+function pobWebSwitchSkillPart(jsonArg)
+  if not build then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+  local args = dkjson.decode(jsonArg)
+  if not args or not args.partIndex then
+    return dkjson.encode({ error = "missing partIndex" })
+  end
+
+  -- Get srcInstance for the main active skill
+  local mainGroup = build.skillsTab and build.skillsTab.socketGroupList[build.mainSocketGroup]
+  if not mainGroup or not mainGroup.displaySkillList then
+    return dkjson.encode({ error = "no active skill" })
+  end
+  local mainActiveSkill = mainGroup.mainActiveSkill or 1
+  local activeSkill = mainGroup.displaySkillList[mainActiveSkill]
+  if not activeSkill or not activeSkill.activeEffect then
+    return dkjson.encode({ error = "no active effect" })
+  end
+
+  -- Switch stat set (same as Build.lua:460-466)
+  local srcInstance = activeSkill.activeEffect.srcInstance
+  local grantedEffectId = activeSkill.activeEffect.grantedEffect.id
+  srcInstance.statSet = srcInstance.statSet or {}
+  srcInstance.statSet[grantedEffectId] = args.partIndex
+  build.modFlag = true
+  build.buildFlag = true
+
+  local ok, err = pcall(runCallback, "OnFrame")
+  if not ok then
+    print("OnFrame after part switch (non-fatal): " .. tostring(err))
+  end
+
+  -- Return updated stats (reuse switchMainSkill's response shape)
+  local output = build.calcsTab and build.calcsTab.mainOutput
+  if not output then
+    return dkjson.encode({ error = "no calc output after part switch" })
+  end
+
+  -- Per-damage-type breakdown
+  local damageTypes = {}
+  local dmgSrc = output
+  if output.MainHand and output.MainHand.AverageHit and output.MainHand.AverageHit > 0 then
+    dmgSrc = output.MainHand
+  end
+  local typeAvgs = {}
+  local totalAvg = 0
+  for _, dt in ipairs({"Physical", "Fire", "Cold", "Lightning", "Chaos"}) do
+    local avg = dmgSrc[dt .. "HitAverage"] or 0
+    typeAvgs[dt] = avg
+    totalAvg = totalAvg + avg
+  end
+  local totalMin = dmgSrc.TotalMin or 0
+  local totalMax = dmgSrc.TotalMax or 0
+  for _, dt in ipairs({"Physical", "Fire", "Cold", "Lightning", "Chaos"}) do
+    local avg = typeAvgs[dt]
+    if avg > 0 then
+      local ratio = totalAvg > 0 and (avg / totalAvg) or 0
+      damageTypes[dt] = {
+        min = math.floor(totalMin * ratio),
+        max = math.floor(totalMax * ratio),
+        average = avg,
+      }
+    end
+  end
+
+  local stats = {
+    TotalDPS = output.TotalDPS or 0,
+    CombinedDPS = output.CombinedDPS or 0,
+    TotalDot = output.TotalDot or 0,
+    BleedDPS = output.BleedDPS or 0,
+    IgniteDPS = output.IgniteDPS or 0,
+    PoisonDPS = output.PoisonDPS or 0,
+    Speed = output.Speed or 0,
+    CastSpeed = output.CastSpeed or 0,
+    CritChance = output.CritChance or 0,
+    CritMultiplier = output.CritMultiplier or 0,
+    AverageDamage = output.AverageDamage or 0,
+    AverageHit = dmgSrc.AverageHit or output.AverageHit or 0,
+    TotalMin = totalMin,
+    TotalMax = totalMax,
+    ManaCost = output.ManaCost or 0,
+    damageTypes = damageTypes,
+  }
+
+  local skillDps = {}
+  if output.SkillDPS then
+    for _, skill in ipairs(output.SkillDPS) do
+      table.insert(skillDps, {
+        name = skill.name or "Unknown",
+        dps = skill.dps or 0,
+        count = skill.count or 1,
+      })
+    end
+  end
+
+  local displayData = dkjson.decode(pobWebGetCalcDisplay("{}"))
+
+  -- Stat sets info
+  local partsInfo = nil
+  local selectedPart = nil
+  local statSets = activeSkill.activeEffect.grantedEffect and activeSkill.activeEffect.grantedEffect.statSets
+  if statSets and #statSets > 1 then
+    partsInfo = {}
+    for i, ss in ipairs(statSets) do
+      table.insert(partsInfo, { index = i, name = ss.label or ("Part " .. i) })
+    end
+    selectedPart = args.partIndex
+  end
+
+  return dkjson.encode({
+    stats = stats,
+    fullDps = output.FullDPS or output.CombinedDPS or 0,
+    skills = skillDps,
+    display = displayData and displayData.sections or {},
+    parts = partsInfo,
+    selectedPart = selectedPart,
   })
 end
 
@@ -1641,6 +1797,102 @@ function pobWebGetItemsData(jsonArg)
   return dkjson.encode({ items = result })
 end
 
+-- Add a custom item from raw text (paste from game)
+function pobWebAddCustomItem(jsonArg)
+  if not build or not build.itemsTab then
+    return dkjson.encode({ success = false, error = "no build loaded" })
+  end
+  local args = dkjson.decode(jsonArg)
+  if not args or not args.rawText or args.rawText == "" then
+    return dkjson.encode({ success = false, error = "no item text provided" })
+  end
+
+  local ok, newItem = pcall(new, "Item", args.rawText)
+  if not ok or not newItem then
+    return dkjson.encode({ success = false, error = "failed to create item: " .. tostring(newItem) })
+  end
+  if not newItem.base then
+    return dkjson.encode({ success = false, error = "unrecognized item base" })
+  end
+
+  build.itemsTab:AddItem(newItem, true)
+  local primarySlot = newItem:GetPrimarySlot()
+
+  return dkjson.encode({
+    success = true,
+    itemId = newItem.id,
+    primarySlot = primarySlot or "",
+  })
+end
+
+-- Get all items valid for a given slot
+function pobWebGetSlotItems(jsonArg)
+  if not build or not build.itemsTab then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+  local args = dkjson.decode(jsonArg)
+  if not args or not args.slotName then
+    return dkjson.encode({ error = "missing slotName" })
+  end
+
+  local slotName = args.slotName
+  local slot = build.itemsTab.slots[slotName]
+  local equippedId = slot and slot.selItemId or 0
+
+  local result = {}
+  for itemId, item in pairs(build.itemsTab.items) do
+    if item.base and build.itemsTab:IsItemValidForSlot(item, slotName) then
+      local base = item.base
+      local itemType = (base.weapon and build.data.weaponTypeInfo[base.type] and build.data.weaponTypeInfo[base.type].label) or base.type or ""
+      result[#result + 1] = {
+        itemId = itemId,
+        name = item.title or item.name or "",
+        baseName = item.baseName or (base and base.name) or "",
+        rarity = item.rarity or "NORMAL",
+        itemType = itemType,
+        isEquipped = (itemId == equippedId),
+      }
+    end
+  end
+
+  table.sort(result, function(a, b)
+    if a.isEquipped ~= b.isEquipped then return a.isEquipped end
+    return a.name < b.name
+  end)
+
+  return dkjson.encode(result)
+end
+
+-- Equip an item to a specific slot
+function pobWebEquipItem(jsonArg)
+  if not build or not build.itemsTab then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+  local args = dkjson.decode(jsonArg)
+  if not args or not args.itemId or not args.slotName then
+    return dkjson.encode({ error = "missing itemId or slotName" })
+  end
+
+  local slot = build.itemsTab.slots[args.slotName]
+  if not slot then
+    return dkjson.encode({ error = "invalid slot: " .. tostring(args.slotName) })
+  end
+
+  slot:SetSelItemId(args.itemId)
+  build.itemsTab:PopulateSlots()
+  build.buildFlag = true
+  pcall(runCallback, "OnFrame")
+
+  -- Return refreshed items only; client fetches stats separately to avoid
+  -- double-encode issues with dkjson (arrays becoming objects)
+  local itemsJson = pobWebGetItemsData("{}")
+  local items = dkjson.decode(itemsJson)
+
+  return dkjson.encode({
+    items = items.items or {},
+  })
+end
+
 -- Get jewel socket data from PoB's PassiveSpec and ItemsTab
 function pobWebGetJewelData(jsonArg)
   local result = {}
@@ -2173,6 +2425,40 @@ function pobWebReplaceGem(jsonArg)
   end)
 
   -- Return updated gems + skills + display stats
+  local gemsResult = dkjson.decode(pobWebGetGemsData("{}"))
+  local skillsResult = dkjson.decode(pobWebGetSkillsData("{}"))
+  local displayResult = dkjson.decode(pobWebGetDisplayStats("{}"))
+
+  return dkjson.encode({
+    gems = gemsResult,
+    skills = skillsResult,
+    displayStats = (displayResult and displayResult.groups) or {},
+  })
+end
+
+function pobWebToggleGem(jsonArg)
+  if not build or not build.skillsTab then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+  local args = dkjson.decode(jsonArg)
+  if not args or not args.groupIndex or not args.gemIndex then
+    return dkjson.encode({ error = "missing groupIndex or gemIndex" })
+  end
+  local group = build.skillsTab.socketGroupList[args.groupIndex]
+  if not group then
+    return dkjson.encode({ error = "invalid group index" })
+  end
+  local gemInstance = group.gemList[args.gemIndex]
+  if not gemInstance then
+    return dkjson.encode({ error = "invalid gem index" })
+  end
+
+  gemInstance.enabled = args.enabled
+  build.skillsTab:ProcessSocketGroup(group)
+  build.modFlag = true
+  build.buildFlag = true
+  pcall(runCallback, "OnFrame")
+
   local gemsResult = dkjson.decode(pobWebGetGemsData("{}"))
   local skillsResult = dkjson.decode(pobWebGetSkillsData("{}"))
   local displayResult = dkjson.decode(pobWebGetDisplayStats("{}"))
@@ -2727,6 +3013,30 @@ self.onmessage = async (e: MessageEvent<CalcRequest & { _id?: string }>) => {
       break;
     }
 
+    case "toggleGem": {
+      const emptyToggle = { gems: [], skills: { mainSocketGroup: 1, fullDps: 0, skills: [], groups: [] } as any, displayStats: [] };
+      if (!initialized) {
+        respond(_id, { type: "toggleGem", data: emptyToggle, error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const raw = bridge_call_json("pobWebToggleGem", JSON.stringify({
+          groupIndex: msg.groupIndex,
+          gemIndex: msg.gemIndex,
+          enabled: msg.enabled,
+        }));
+        const data = JSON.parse(raw);
+        if (data.error) {
+          respond(_id, { type: "toggleGem", data: emptyToggle, error: data.error });
+        } else {
+          respond(_id, { type: "toggleGem", data });
+        }
+      } catch (e) {
+        respond(_id, { type: "toggleGem", data: emptyToggle, error: String(e) });
+      }
+      break;
+    }
+
     case "calcSupportDps": {
       if (!initialized) {
         respond(_id, { type: "calcSupportDps", data: { baseDps: 0, results: [] }, error: "Engine not initialized" });
@@ -2746,6 +3056,82 @@ self.onmessage = async (e: MessageEvent<CalcRequest & { _id?: string }>) => {
         }
       } catch (e) {
         respond(_id, { type: "calcSupportDps", data: { baseDps: 0, results: [] }, error: String(e) });
+      }
+      break;
+    }
+
+    case "switchSkillPart": {
+      if (!initialized) {
+        respond(_id, { type: "switchSkillPart", data: { stats: {} as any, fullDps: 0, skills: [] }, error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const raw = bridge_call_json("pobWebSwitchSkillPart", JSON.stringify({ partIndex: msg.partIndex }));
+        const data = JSON.parse(raw);
+        if (data.error) {
+          respond(_id, { type: "switchSkillPart", data: { stats: {} as any, fullDps: 0, skills: [] }, error: data.error });
+        } else {
+          respond(_id, { type: "switchSkillPart", data });
+        }
+      } catch (e) {
+        respond(_id, { type: "switchSkillPart", data: { stats: {} as any, fullDps: 0, skills: [] }, error: String(e) });
+      }
+      break;
+    }
+
+    case "addCustomItem": {
+      if (!initialized) {
+        respond(_id, { type: "addCustomItem", data: { success: false, error: "Engine not initialized" } });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebAddCustomItem", JSON.stringify({ rawText: msg.rawText }));
+        const data = JSON.parse(result);
+        respond(_id, { type: "addCustomItem", data });
+      } catch (e) {
+        respond(_id, { type: "addCustomItem", data: { success: false, error: String(e) } });
+      }
+      break;
+    }
+
+    case "getSlotItems": {
+      if (!initialized) {
+        respond(_id, { type: "slotItems", data: [], error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebGetSlotItems", JSON.stringify({ slotName: msg.slotName }));
+        const data = JSON.parse(result);
+        if (data.error) {
+          respond(_id, { type: "slotItems", data: [], error: data.error });
+        } else {
+          respond(_id, { type: "slotItems", data });
+        }
+      } catch (e) {
+        respond(_id, { type: "slotItems", data: [], error: String(e) });
+      }
+      break;
+    }
+
+    case "equipItem": {
+      const emptyEquip = { items: [] as any[] };
+      if (!initialized) {
+        respond(_id, { type: "equipItem", data: emptyEquip, error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebEquipItem", JSON.stringify({
+          itemId: msg.itemId,
+          slotName: msg.slotName,
+        }));
+        const data = JSON.parse(result);
+        if (data.error) {
+          respond(_id, { type: "equipItem", data: emptyEquip, error: data.error });
+        } else {
+          respond(_id, { type: "equipItem", data });
+        }
+      } catch (e) {
+        respond(_id, { type: "equipItem", data: emptyEquip, error: String(e) });
       }
       break;
     }

@@ -25,7 +25,12 @@ export type CalcRequest =
   | { type: "getGems" }
   | { type: "getAvailableSupports"; groupIndex?: number }
   | { type: "replaceGem"; groupIndex: number; gemIndex: number; gemId: string | null }
+  | { type: "toggleGem"; groupIndex: number; gemIndex: number; enabled: boolean }
   | { type: "calcSupportDps"; groupIndex: number; gemIndex: number; candidates: { id: string }[] }
+  | { type: "switchSkillPart"; partIndex: number }
+  | { type: "addCustomItem"; rawText: string }
+  | { type: "getSlotItems"; slotName: string }
+  | { type: "equipItem"; itemId: number; slotName: string }
   | { type: "exec"; code: string };
 
 /** Per-skill DPS entry from PoB's calcFullDPS (output.SkillDPS) */
@@ -74,6 +79,12 @@ export interface MainSkillStats {
   damageTypes: Record<string, DamageTypeBreakdown>;
 }
 
+/** Skill part (e.g. "Arrow" vs "Shards" for Ice Shot) */
+export interface SkillPartInfo {
+  index: number;
+  name: string;
+}
+
 /** Full skills data returned by getSkills */
 export interface SkillsData {
   mainSocketGroup: number;
@@ -81,6 +92,8 @@ export interface SkillsData {
   skills: SkillDpsEntry[];
   mainSkillStats?: MainSkillStats;
   groups: SocketGroupInfo[];
+  parts?: SkillPartInfo[];
+  selectedPart?: number;
 }
 
 /** A single stat delta from PoB's CalculatePowerStat */
@@ -96,12 +109,14 @@ export interface NodeImpact {
   pathNodes: number[];
 }
 
-/** Response from switchMainSkill */
+/** Response from switchMainSkill / switchSkillPart */
 export interface SwitchSkillResult {
   stats: MainSkillStats;
   fullDps: number;
   skills: SkillDpsEntry[];
   display?: CalcSection[];
+  parts?: SkillPartInfo[];
+  selectedPart?: number;
 }
 
 /** CalcDisplay: PoB's CalcSections-based structured output */
@@ -269,6 +284,16 @@ export interface AvailableGem {
   color: "str" | "dex" | "int" | "normal";
 }
 
+/** Lightweight item entry for slot browser */
+export interface SlotItemEntry {
+  itemId: number;
+  name: string;
+  baseName: string;
+  rarity: string;
+  itemType: string;
+  isEquipped: boolean;
+}
+
 /** Response from allocNode / deallocNode */
 export interface AllocResult {
   success: boolean;
@@ -299,7 +324,12 @@ export type CalcResponse =
   | { type: "gems"; data: GemsData; error?: string }
   | { type: "availableSupports"; data: AvailableGem[]; error?: string }
   | { type: "replaceGem"; data: { gems: GemsData; skills: SkillsData; displayStats: DisplayStatGroup[] }; error?: string }
+  | { type: "toggleGem"; data: { gems: GemsData; skills: SkillsData; displayStats: DisplayStatGroup[] }; error?: string }
   | { type: "calcSupportDps"; data: { baseDps: number; results: { id: string; dps: number }[] }; error?: string }
+  | { type: "switchSkillPart"; data: SwitchSkillResult; error?: string }
+  | { type: "addCustomItem"; data: { success: boolean; error?: string; itemId?: number; primarySlot?: string }; error?: string }
+  | { type: "slotItems"; data: SlotItemEntry[]; error?: string }
+  | { type: "equipItem"; data: { items: EquippedItem[] }; error?: string }
   | { type: "error"; message: string }
   | { type: "log"; message: string }
   | { type: "exec"; result?: string; error?: string };
