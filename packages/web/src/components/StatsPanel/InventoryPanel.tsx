@@ -1,6 +1,9 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useBuildStore } from "@/store/build-store";
-import type { EquippedItem, ModLine, JewelInfo } from "@/worker/calc-api";
+import type { EquippedItem, ModLine, JewelInfo, SlotItemEntry } from "@/worker/calc-api";
+import type { CalcClient } from "@/worker/calc-client";
+import { isTouchDevice } from "@/utils/is-touch";
+import { resolveItemImages } from "@/utils/item-images";
 
 // --- PoB rarity colors (from Data/Global.lua colorCodes) ---
 const RARITY_COLOR: Record<string, string> = {
@@ -415,7 +418,21 @@ export function JewelDetailBody({ jewel }: { jewel: JewelInfo }) {
 }
 
 // --- Item detail click-through panel (mobile/touch) ---
-function ItemDetail({ item, onClose }: { item: EquippedItem; onClose: () => void }) {
+function ItemDetail({
+  item,
+  slotName,
+  slotItems,
+  loadingSlotItems,
+  onClose,
+  onEquip,
+}: {
+  item: EquippedItem;
+  slotName: string;
+  slotItems: SlotItemEntry[];
+  loadingSlotItems: boolean;
+  onClose: () => void;
+  onEquip: (itemId: number) => void;
+}) {
   return (
     <div
       className="absolute inset-0 z-10 overflow-y-auto"
@@ -432,6 +449,92 @@ function ItemDetail({ item, onClose }: { item: EquippedItem; onClose: () => void
           Back
         </button>
         <ItemDetailBody item={item} />
+
+        {/* Slot item browser */}
+        {(slotItems.length > 1 || loadingSlotItems) && (
+          <div className="mt-3 border-t border-gray-700/60 pt-2">
+            <p className="mb-1.5 text-[10px] uppercase tracking-wider text-gray-500">
+              Available for {slotName}
+            </p>
+            {loadingSlotItems ? (
+              <p className="text-[11px] text-gray-600">Loading...</p>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {slotItems.filter(si => !si.isEquipped).map((si) => (
+                  <button
+                    key={si.itemId}
+                    className="flex items-center gap-2 rounded px-2 py-1.5 text-left transition hover:bg-gray-800"
+                    style={{ border: "1px solid #1a1f25" }}
+                    onClick={() => onEquip(si.itemId)}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[11px] font-medium" style={{ color: rarityColor(si.rarity) }}>
+                        {si.name || si.baseName}
+                      </p>
+                      {si.name && si.baseName && si.name !== si.baseName && (
+                        <p className="truncate text-[10px] text-gray-500">{si.baseName}</p>
+                      )}
+                    </div>
+                    <span className="shrink-0 text-[9px] text-gray-600">{si.itemType}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- Paste item modal ---
+function PasteItemModal({
+  error,
+  onAdd,
+  onCancel,
+}: {
+  error: string | null;
+  onAdd: (rawText: string) => void;
+  onCancel: () => void;
+}) {
+  const [text, setText] = useState("");
+
+  return (
+    <div
+      className="absolute inset-0 z-20 flex items-center justify-center"
+      style={{ background: "#0008" }}
+      onClick={onCancel}
+    >
+      <div
+        className="mx-3 w-full max-w-sm rounded-lg border border-poe-border p-4"
+        style={{ background: "#0d1014" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="mb-2 text-sm font-semibold text-gray-200">Add Item</h3>
+        <textarea
+          className="mb-2 w-full rounded border border-poe-border bg-poe-bg px-2 py-1.5 text-xs text-gray-200 placeholder-gray-600 focus:border-poe-accent focus:outline-none"
+          rows={10}
+          placeholder={"Paste item text from PoE2...\n\nRarity: Rare\nDoom Coil\nSapphire Ring\n..."}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          autoFocus
+        />
+        {error && <p className="mb-2 text-[11px] text-red-400">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button
+            className="rounded px-3 py-1 text-xs text-gray-400 hover:text-gray-200"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+          <button
+            className="rounded bg-poe-accent/20 px-3 py-1 text-xs text-poe-accent hover:bg-poe-accent/30 disabled:opacity-50"
+            disabled={!text.trim()}
+            onClick={() => { if (text.trim()) onAdd(text.trim()); }}
+          >
+            Add Item
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -509,9 +612,9 @@ function SlotCell({
         border: `1px solid ${border}`,
         opacity: hasItem ? 1 : 0.4,
       }}
-      onClick={hasItem ? onClick : undefined}
-      onMouseEnter={() => { if (hasItem && ref.current) onHover(ref.current.getBoundingClientRect()); }}
-      onMouseLeave={onHoverEnd}
+      onClick={onClick}
+      onPointerEnter={() => { if (isTouchDevice()) return; if (hasItem && ref.current) onHover(ref.current.getBoundingClientRect()); }}
+      onPointerLeave={() => { if (isTouchDevice()) return; onHoverEnd(); }}
     >
       {imageUrl ? (
         <img
@@ -559,8 +662,8 @@ function JewelCell({
       ref={ref}
       className="flex flex-col items-center gap-0.5 rounded px-1 py-1 transition hover:bg-gray-800"
       onClick={onClick}
-      onMouseEnter={() => { if (ref.current) onHover(ref.current.getBoundingClientRect()); }}
-      onMouseLeave={onHoverEnd}
+      onPointerEnter={() => { if (isTouchDevice()) return; if (ref.current) onHover(ref.current.getBoundingClientRect()); }}
+      onPointerLeave={() => { if (isTouchDevice()) return; onHoverEnd(); }}
       title={`${jewel.name} — Click to locate on tree`}
     >
       <div
@@ -583,13 +686,79 @@ function JewelCell({
 }
 
 // --- Main panel ---
-export function InventoryPanel() {
-  const { equippedItems, build, itemImageUrls: imageUrls, runeImageUrls, jewelImageUrls, jewelData, focusNode } = useBuildStore();
+export function InventoryPanel({ calcClient }: { calcClient?: CalcClient | null }) {
+  const { equippedItems, build, itemImageUrls: imageUrls, runeImageUrls, jewelImageUrls, jewelData, focusNode, setEquippedItems } = useBuildStore();
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [weaponSet, setWeaponSet] = useState<1 | 2>(1);
   const [hoveredItem, setHoveredItem] = useState<{ item: EquippedItem; rect: DOMRect } | null>(null);
   const [hoveredJewel, setHoveredJewel] = useState<{ jewel: JewelInfo; rect: DOMRect } | null>(null);
+  const [showPasteModal, setShowPasteModal] = useState(false);
+  const [pasteError, setPasteError] = useState<string | null>(null);
+  const [slotItems, setSlotItems] = useState<SlotItemEntry[]>([]);
+  const [loadingSlotItems, setLoadingSlotItems] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+
+  const handleAddItem = useCallback(async (rawText: string) => {
+    if (!calcClient) return;
+    try {
+      const result = await calcClient.addCustomItem(rawText);
+      if (!result.success) {
+        setPasteError(result.error || "Failed to parse item");
+        return;
+      }
+      setShowPasteModal(false);
+      setPasteError(null);
+      // Refresh items
+      const items = await calcClient.getItems();
+      setEquippedItems(items);
+      resolveItemImages(items).then((urls) => {
+        useBuildStore.getState().setItemImageUrls(urls);
+      });
+    } catch (e) {
+      setPasteError(String(e));
+    }
+  }, [calcClient, setEquippedItems]);
+
+  const handleSelectSlot = useCallback(async (slotName: string) => {
+    setSelectedSlot(slotName);
+    setSlotItems([]);
+    if (!calcClient) return;
+    setLoadingSlotItems(true);
+    try {
+      const items = await calcClient.getSlotItems(slotName);
+      setSlotItems(items);
+    } catch {
+      // ignore
+    } finally {
+      setLoadingSlotItems(false);
+    }
+  }, [calcClient]);
+
+  const handleEquipItem = useCallback(async (itemId: number) => {
+    if (!calcClient || !selectedSlot) return;
+    try {
+      const result = await calcClient.equipItem(itemId, selectedSlot);
+      if (result.items.length > 0) {
+        setEquippedItems(result.items);
+        resolveItemImages(result.items).then((urls) => {
+          useBuildStore.getState().setItemImageUrls(urls);
+        });
+      }
+      // Fetch updated stats separately (avoids double-encode issues)
+      const store = useBuildStore.getState();
+      const [displayStats, skills, calcDisplay] = await Promise.all([
+        calcClient.getDisplayStats(),
+        calcClient.getSkills(),
+        calcClient.getCalcDisplay(),
+      ]);
+      store.setDisplayStats(displayStats);
+      store.setSkillsData(skills);
+      store.setCalcDisplay(calcDisplay);
+      setSelectedSlot(null);
+    } catch {
+      // ignore
+    }
+  }, [calcClient, selectedSlot, setEquippedItems]);
 
   if (!build) {
     return (
@@ -634,32 +803,43 @@ export function InventoryPanel() {
           </p>
         </div>
 
-        {hasSwapWeapons && (
-          <div className="flex gap-1">
+        <div className="flex items-center gap-1">
+          {calcClient && (
             <button
-              className="rounded border px-2 py-0.5 text-[10px] font-bold"
-              style={{
-                borderColor: weaponSet === 1 ? "#8888ff" : "#2a3038",
-                color: weaponSet === 1 ? "#8888ff" : "#555",
-                background: weaponSet === 1 ? "#8888ff15" : "transparent",
-              }}
-              onClick={() => setWeaponSet(1)}
+              className="rounded border border-poe-border px-2 py-0.5 text-[10px] font-bold text-gray-400 hover:border-poe-accent hover:text-poe-accent"
+              onClick={() => { setPasteError(null); setShowPasteModal(true); }}
+              title="Add custom item"
             >
-              I
+              +
             </button>
-            <button
-              className="rounded border px-2 py-0.5 text-[10px] font-bold"
-              style={{
-                borderColor: weaponSet === 2 ? "#8888ff" : "#2a3038",
-                color: weaponSet === 2 ? "#8888ff" : "#555",
-                background: weaponSet === 2 ? "#8888ff15" : "transparent",
-              }}
-              onClick={() => setWeaponSet(2)}
-            >
-              II
-            </button>
-          </div>
-        )}
+          )}
+          {hasSwapWeapons && (
+            <>
+              <button
+                className="rounded border px-2 py-0.5 text-[10px] font-bold"
+                style={{
+                  borderColor: weaponSet === 1 ? "#8888ff" : "#2a3038",
+                  color: weaponSet === 1 ? "#8888ff" : "#555",
+                  background: weaponSet === 1 ? "#8888ff15" : "transparent",
+                }}
+                onClick={() => setWeaponSet(1)}
+              >
+                I
+              </button>
+              <button
+                className="rounded border px-2 py-0.5 text-[10px] font-bold"
+                style={{
+                  borderColor: weaponSet === 2 ? "#8888ff" : "#2a3038",
+                  color: weaponSet === 2 ? "#8888ff" : "#555",
+                  background: weaponSet === 2 ? "#8888ff15" : "transparent",
+                }}
+                onClick={() => setWeaponSet(2)}
+              >
+                II
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Equipment grid */}
@@ -683,7 +863,7 @@ export function InventoryPanel() {
               item={item}
               imageUrl={imageUrls[slot.name]}
               runeImageUrls={runeImageUrls}
-              onClick={() => setSelectedSlot(slot.name)}
+              onClick={() => handleSelectSlot(slot.name)}
               onHover={(rect) => { if (item) setHoveredItem({ item, rect }); }}
               onHoverEnd={() => setHoveredItem(null)}
             />
@@ -745,10 +925,66 @@ export function InventoryPanel() {
       })()}
 
       {/* Detail overlay */}
-      {selectedItem && (
-        <ItemDetail
-          item={selectedItem}
-          onClose={() => setSelectedSlot(null)}
+      {selectedSlot && (
+        selectedItem ? (
+          <ItemDetail
+            item={selectedItem}
+            slotName={selectedSlot}
+            slotItems={slotItems}
+            loadingSlotItems={loadingSlotItems}
+            onClose={() => setSelectedSlot(null)}
+            onEquip={handleEquipItem}
+          />
+        ) : (slotItems.length > 0 || loadingSlotItems) ? (
+          <div className="absolute inset-0 z-10 overflow-y-auto" style={{ background: "#0b0e11ee" }}>
+            <div className="p-3">
+              <button
+                className="mb-2 flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200"
+                onClick={() => setSelectedSlot(null)}
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M8 2L4 6L8 10" />
+                </svg>
+                Back
+              </button>
+              <p className="mb-1.5 text-[10px] uppercase tracking-wider text-gray-500">
+                Available for {selectedSlot}
+              </p>
+              {loadingSlotItems ? (
+                <p className="text-[11px] text-gray-600">Loading...</p>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  {slotItems.map((si) => (
+                    <button
+                      key={si.itemId}
+                      className="flex items-center gap-2 rounded px-2 py-1.5 text-left transition hover:bg-gray-800"
+                      style={{ border: "1px solid #1a1f25" }}
+                      onClick={() => handleEquipItem(si.itemId)}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[11px] font-medium" style={{ color: rarityColor(si.rarity) }}>
+                          {si.name || si.baseName}
+                        </p>
+                        {si.name && si.baseName && si.name !== si.baseName && (
+                          <p className="truncate text-[10px] text-gray-500">{si.baseName}</p>
+                        )}
+                      </div>
+                      <span className="shrink-0 text-[9px] text-gray-600">{si.itemType}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null
+      )}
+
+      {/* Paste item modal */}
+      {showPasteModal && (
+        <PasteItemModal
+          error={pasteError}
+          onAdd={handleAddItem}
+          onCancel={() => { setShowPasteModal(false); setPasteError(null); }}
         />
       )}
     </div>

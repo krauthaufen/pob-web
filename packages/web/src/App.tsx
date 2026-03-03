@@ -415,7 +415,7 @@ export function App() {
              sidePanel === "skills" ? <SkillsPanel calcClient={calcClientRef.current} /> :
              sidePanel === "gems" ? <GemsPanel calcClient={calcClientRef.current} /> :
              sidePanel === "defence" ? <DefencePanel /> :
-             sidePanel === "items" ? <InventoryPanel /> :
+             sidePanel === "items" ? <InventoryPanel calcClient={calcClientRef.current} /> :
              <ConfigPanel calcClient={calcClientRef.current} onConfigChange={() => setHeatmapData(null)} />}
           </div>
         </aside>
@@ -666,7 +666,7 @@ export function App() {
                sidePanel === "skills" ? <SkillsPanel calcClient={calcClientRef.current} /> :
                sidePanel === "gems" ? <GemsPanel calcClient={calcClientRef.current} /> :
                sidePanel === "defence" ? <DefencePanel /> :
-               sidePanel === "items" ? <InventoryPanel /> :
+               sidePanel === "items" ? <InventoryPanel calcClient={calcClientRef.current} /> :
                <ConfigPanel calcClient={calcClientRef.current} onConfigChange={() => setHeatmapData(null)} />}
             </div>
           </aside>
