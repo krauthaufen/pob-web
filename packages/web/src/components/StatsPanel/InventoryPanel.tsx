@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { useBuildStore } from "@/store/build-store";
 import type { EquippedItem, ModLine, JewelInfo, SlotItemEntry } from "@/worker/calc-api";
 import type { CalcClient } from "@/worker/calc-client";
+import { encodeBuildCode } from "@/worker/build-decoder";
 import { isTouchDevice } from "@/utils/is-touch";
 import { resolveItemImages } from "@/utils/item-images";
 
@@ -708,12 +709,15 @@ export function InventoryPanel({ calcClient }: { calcClient?: CalcClient | null 
       }
       setShowPasteModal(false);
       setPasteError(null);
-      // Refresh items
+      // Refresh items and persist build
       const items = await calcClient.getItems();
       setEquippedItems(items);
       resolveItemImages(items).then((urls) => {
         useBuildStore.getState().setItemImageUrls(urls);
       });
+      calcClient.exportBuild().then((xml) => {
+        if (xml) useBuildStore.getState().setImportCode(encodeBuildCode(xml));
+      }).catch(() => {});
     } catch (e) {
       setPasteError(String(e));
     }
@@ -754,6 +758,10 @@ export function InventoryPanel({ calcClient }: { calcClient?: CalcClient | null 
       store.setDisplayStats(displayStats);
       store.setSkillsData(skills);
       store.setCalcDisplay(calcDisplay);
+      // Persist build code so custom items survive reload
+      calcClient.exportBuild().then((xml) => {
+        if (xml) store.setImportCode(encodeBuildCode(xml));
+      }).catch(() => {});
       setSelectedSlot(null);
     } catch {
       // ignore
