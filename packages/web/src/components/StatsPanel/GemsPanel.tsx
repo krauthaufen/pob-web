@@ -1,6 +1,8 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useBuildStore } from "@/store/build-store";
-import type { GemInfo, SocketGroupGems } from "@/worker/calc-api";
+import type { GemInfo, SocketGroupGems, AvailableGem } from "@/worker/calc-api";
+import type { CalcClient } from "@/worker/calc-client";
+import { resolveGemImages } from "@/utils/item-images";
 
 const GEM_COLORS: Record<string, string> = {
   str: "#c83030",
@@ -95,7 +97,13 @@ function GemDetailBody({ gem }: { gem: GemInfo }) {
   );
 }
 
-function GemDetail({ gem, onClose }: { gem: GemInfo; onClose: () => void }) {
+function GemDetail({ gem, onClose, onReplace, onRemove, replacing }: {
+  gem: GemInfo;
+  onClose: () => void;
+  onReplace?: () => void;
+  onRemove?: () => void;
+  replacing?: boolean;
+}) {
   return (
     <div
       className="absolute inset-0 z-10 overflow-y-auto"
@@ -112,6 +120,120 @@ function GemDetail({ gem, onClose }: { gem: GemInfo; onClose: () => void }) {
           Back
         </button>
         <GemDetailBody gem={gem} />
+        {gem.isSupport && onReplace && (
+          <div className="mt-3 flex gap-2">
+            <button
+              className="flex-1 rounded bg-poe-accent/80 py-2 text-xs font-semibold text-poe-bg transition active:bg-poe-accent disabled:opacity-50"
+              onClick={onReplace}
+              disabled={replacing}
+            >
+              Replace
+            </button>
+            {onRemove && (
+              <button
+                className="rounded bg-red-900/60 px-3 py-2 text-xs font-semibold text-red-200 transition active:bg-red-900/80 disabled:opacity-50"
+                onClick={onRemove}
+                disabled={replacing}
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function formatDps(value: number): string {
+  if (Math.abs(value) >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+  if (Math.abs(value) >= 1000) return `${(value / 1000).toFixed(1)}k`;
+  return String(Math.round(value));
+}
+
+function SupportPicker({ supports, currentName, gemImageUrls, dpsMap, dpsLoading, onSelect, onClose }: {
+  supports: AvailableGem[];
+  currentName: string;
+  gemImageUrls: Record<string, string>;
+  dpsMap: Record<string, number> | null;
+  dpsLoading: boolean;
+  onSelect: (gem: AvailableGem) => void;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const filtered = search
+    ? supports.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()))
+    : supports;
+
+  // Sort by DPS delta when available
+  const sorted = dpsMap
+    ? [...filtered].sort((a, b) => (dpsMap[b.id] ?? -Infinity) - (dpsMap[a.id] ?? -Infinity))
+    : filtered;
+
+  return (
+    <div
+      className="absolute inset-0 z-10 flex flex-col"
+      style={{ background: "#0b0e11" }}
+    >
+      <div className="flex items-center gap-2 border-b border-poe-border px-3 py-2">
+        <button
+          className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200"
+          onClick={onClose}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M8 2L4 6L8 10" />
+          </svg>
+        </button>
+        <input
+          className="flex-1 rounded border border-poe-border bg-poe-bg px-2 py-1 text-xs text-poe-text placeholder-gray-600 focus:border-poe-accent focus:outline-none"
+          placeholder="Search supports..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          autoFocus
+        />
+        {dpsLoading && (
+          <span className="text-[10px] text-gray-500 animate-pulse">calc...</span>
+        )}
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {sorted.map((gem) => {
+          const color = GEM_COLORS[gem.color] ?? "#888";
+          const isCurrent = gem.name === currentName;
+          const dpsDelta = dpsMap?.[gem.id];
+          return (
+            <button
+              key={gem.id}
+              className={`flex w-full items-center gap-2 border-b border-poe-border/30 px-3 py-1.5 text-left transition hover:bg-white/5 ${isCurrent ? "bg-white/10" : ""}`}
+              onClick={() => onSelect(gem)}
+            >
+              <div
+                className="flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full"
+                style={{ border: `2px solid ${color}`, background: "#121619" }}
+              >
+                {gemImageUrls[gem.name] ? (
+                  <img src={gemImageUrls[gem.name]} alt="" className="h-full w-full rounded-full object-cover" loading="lazy" />
+                ) : (
+                  <svg width="7" height="7" viewBox="0 0 16 16" fill={color} opacity="0.6">
+                    <path d="M8 1L14 8L8 15L2 8Z" />
+                  </svg>
+                )}
+              </div>
+              <span className="min-w-0 flex-1 truncate text-xs" style={{ color }}>
+                {gem.name}
+              </span>
+              {dpsDelta != null ? (
+                <span className={`shrink-0 font-mono text-[10px] ${dpsDelta > 0 ? "text-green-400" : dpsDelta < 0 ? "text-red-400" : "text-gray-500"}`}>
+                  {dpsDelta > 0 ? "+" : ""}{formatDps(dpsDelta)}
+                </span>
+              ) : isCurrent ? (
+                <span className="text-[9px] text-gray-500">current</span>
+              ) : null}
+            </button>
+          );
+        })}
+        {sorted.length === 0 && (
+          <p className="p-4 text-center text-xs text-gray-500">No matches</p>
+        )}
       </div>
     </div>
   );
@@ -195,7 +317,7 @@ function SocketGroupRow({
   gemImageUrls: Record<string, string>;
   onGemHover: (gem: GemInfo, rect: DOMRect) => void;
   onGemHoverEnd: () => void;
-  onGemClick: (gem: GemInfo) => void;
+  onGemClick: (gem: GemInfo, groupIndex: number, gemIndex: number) => void;
 }) {
   const dimmed = !group.enabled;
 
@@ -229,7 +351,7 @@ function SocketGroupRow({
             isSupport={gem.isSupport}
             onHover={(rect) => onGemHover(gem, rect)}
             onHoverEnd={onGemHoverEnd}
-            onClick={() => onGemClick(gem)}
+            onClick={() => onGemClick(gem, group.index, i + 1)}
           />
         ))}
       </div>
@@ -237,10 +359,58 @@ function SocketGroupRow({
   );
 }
 
-export function GemsPanel() {
+interface SelectedGemInfo {
+  gem: GemInfo;
+  groupIndex: number;
+  gemIndex: number; // 1-based (Lua index)
+}
+
+export function GemsPanel({ calcClient }: { calcClient?: CalcClient | null }) {
   const { gemsData, build, gemImageUrls } = useBuildStore();
   const [hoveredGem, setHoveredGem] = useState<{ gem: GemInfo; rect: DOMRect } | null>(null);
-  const [selectedGem, setSelectedGem] = useState<GemInfo | null>(null);
+  const [selected, setSelected] = useState<SelectedGemInfo | null>(null);
+  const [showPicker, setShowPicker] = useState(false);
+  const [replacing, setReplacing] = useState(false);
+  const [pickerSupports, setPickerSupports] = useState<AvailableGem[]>([]);
+  const [dpsMap, setDpsMap] = useState<Record<string, number> | null>(null);
+  const [dpsLoading, setDpsLoading] = useState(false);
+
+  const handleReplace = useCallback(async (gem: AvailableGem) => {
+    if (!calcClient || !selected) return;
+    setReplacing(true);
+    try {
+      const result = await calcClient.replaceGem(selected.groupIndex, selected.gemIndex, gem.id);
+      const store = useBuildStore.getState();
+      store.setGemsData(result.gems);
+      store.setGemImageUrls(resolveGemImages(result.gems));
+      store.setSkillsData(result.skills);
+      store.setDisplayStats(result.displayStats);
+      setShowPicker(false);
+      setSelected(null);
+    } catch (e) {
+      console.error("replaceGem failed:", e);
+    } finally {
+      setReplacing(false);
+    }
+  }, [calcClient, selected]);
+
+  const handleRemove = useCallback(async () => {
+    if (!calcClient || !selected) return;
+    setReplacing(true);
+    try {
+      const result = await calcClient.replaceGem(selected.groupIndex, selected.gemIndex, null);
+      const store = useBuildStore.getState();
+      store.setGemsData(result.gems);
+      store.setGemImageUrls(resolveGemImages(result.gems));
+      store.setSkillsData(result.skills);
+      store.setDisplayStats(result.displayStats);
+      setSelected(null);
+    } catch (e) {
+      console.error("removeGem failed:", e);
+    } finally {
+      setReplacing(false);
+    }
+  }, [calcClient, selected]);
 
   if (!build) {
     return (
@@ -282,13 +452,16 @@ export function GemsPanel() {
             gemImageUrls={gemImageUrls}
             onGemHover={(gem, rect) => setHoveredGem({ gem, rect })}
             onGemHoverEnd={() => setHoveredGem(null)}
-            onGemClick={(gem) => setSelectedGem(gem)}
+            onGemClick={(gem, groupIndex, gemIndex) => {
+              setSelected({ gem, groupIndex, gemIndex });
+              setShowPicker(false);
+            }}
           />
         ))}
       </div>
 
       {/* Hover tooltip */}
-      {hoveredGem && !selectedGem && (() => {
+      {hoveredGem && !selected && (() => {
         const cellRect = hoveredGem.rect;
         const rightSpace = window.innerWidth - cellRect.right;
         const useRight = rightSpace < 280;
@@ -305,10 +478,46 @@ export function GemsPanel() {
       })()}
 
       {/* Detail overlay (tap) */}
-      {selectedGem && (
+      {selected && !showPicker && (
         <GemDetail
-          gem={selectedGem}
-          onClose={() => setSelectedGem(null)}
+          gem={selected.gem}
+          onClose={() => setSelected(null)}
+          onReplace={selected.gem.isSupport && calcClient ? () => {
+            setShowPicker(true);
+            setPickerSupports([]);
+            setDpsMap(null);
+            setDpsLoading(true);
+            // Fetch compatible supports for this group, then calculate DPS
+            calcClient.getAvailableSupports(selected.groupIndex).then((supports) => {
+              setPickerSupports(supports);
+              // Calculate DPS for each compatible support
+              return calcClient.calcSupportDps(
+                selected.groupIndex,
+                selected.gemIndex,
+                supports.map((s) => ({ id: s.id })),
+              ).then((data) => {
+                const map: Record<string, number> = {};
+                for (const r of data.results) map[r.id] = r.dps;
+                setDpsMap(map);
+              });
+            }).catch((e) => console.error("support picker failed:", e))
+              .finally(() => setDpsLoading(false));
+          } : undefined}
+          onRemove={selected.gem.isSupport && calcClient ? handleRemove : undefined}
+          replacing={replacing}
+        />
+      )}
+
+      {/* Support picker overlay */}
+      {showPicker && selected && (
+        <SupportPicker
+          supports={pickerSupports}
+          currentName={selected.gem.name}
+          gemImageUrls={gemImageUrls}
+          dpsMap={dpsMap}
+          dpsLoading={dpsLoading}
+          onSelect={handleReplace}
+          onClose={() => { setShowPicker(false); setDpsMap(null); }}
         />
       )}
     </div>

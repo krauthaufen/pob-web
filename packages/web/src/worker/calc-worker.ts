@@ -435,6 +435,36 @@ function pobWebGetSkillsData(jsonArg)
 
   -- Main skill detailed stats
   if output then
+    -- Per-damage-type breakdown
+    -- For attacks, damage lives on output.MainHand/OffHand; for spells, on output directly
+    local damageTypes = {}
+    local dmgSrc = output
+    if output.MainHand and output.MainHand.AverageHit and output.MainHand.AverageHit > 0 then
+      dmgSrc = output.MainHand
+    end
+    -- Collect HitAverage per type and compute total
+    local typeAvgs = {}
+    local totalAvg = 0
+    for _, dt in ipairs({"Physical", "Fire", "Cold", "Lightning", "Chaos"}) do
+      local avg = dmgSrc[dt .. "HitAverage"] or 0
+      typeAvgs[dt] = avg
+      totalAvg = totalAvg + avg
+    end
+    -- TotalMin/TotalMax are always set; distribute proportionally by HitAverage
+    local totalMin = dmgSrc.TotalMin or 0
+    local totalMax = dmgSrc.TotalMax or 0
+    for _, dt in ipairs({"Physical", "Fire", "Cold", "Lightning", "Chaos"}) do
+      local avg = typeAvgs[dt]
+      if avg > 0 then
+        local ratio = totalAvg > 0 and (avg / totalAvg) or 0
+        damageTypes[dt] = {
+          min = math.floor(totalMin * ratio),
+          max = math.floor(totalMax * ratio),
+          average = avg,
+        }
+      end
+    end
+
     result.mainSkillStats = {
       TotalDPS = output.TotalDPS or 0,
       CombinedDPS = output.CombinedDPS or 0,
@@ -447,7 +477,11 @@ function pobWebGetSkillsData(jsonArg)
       CritChance = output.CritChance or 0,
       CritMultiplier = output.CritMultiplier or 0,
       AverageDamage = output.AverageDamage or 0,
+      AverageHit = dmgSrc.AverageHit or output.AverageHit or 0,
+      TotalMin = totalMin,
+      TotalMax = totalMax,
       ManaCost = output.ManaCost or 0,
+      damageTypes = damageTypes,
     }
   end
 
@@ -506,6 +540,34 @@ function pobWebSwitchMainSkill(jsonArg)
     return dkjson.encode({ error = "no calc output after switch" })
   end
 
+  -- Per-damage-type breakdown
+  -- For attacks, damage lives on output.MainHand/OffHand; for spells, on output directly
+  local damageTypes = {}
+  local dmgSrc = output
+  if output.MainHand and output.MainHand.AverageHit and output.MainHand.AverageHit > 0 then
+    dmgSrc = output.MainHand
+  end
+  local typeAvgs = {}
+  local totalAvg = 0
+  for _, dt in ipairs({"Physical", "Fire", "Cold", "Lightning", "Chaos"}) do
+    local avg = dmgSrc[dt .. "HitAverage"] or 0
+    typeAvgs[dt] = avg
+    totalAvg = totalAvg + avg
+  end
+  local totalMin = dmgSrc.TotalMin or 0
+  local totalMax = dmgSrc.TotalMax or 0
+  for _, dt in ipairs({"Physical", "Fire", "Cold", "Lightning", "Chaos"}) do
+    local avg = typeAvgs[dt]
+    if avg > 0 then
+      local ratio = totalAvg > 0 and (avg / totalAvg) or 0
+      damageTypes[dt] = {
+        min = math.floor(totalMin * ratio),
+        max = math.floor(totalMax * ratio),
+        average = avg,
+      }
+    end
+  end
+
   local stats = {
     TotalDPS = output.TotalDPS or 0,
     CombinedDPS = output.CombinedDPS or 0,
@@ -518,7 +580,11 @@ function pobWebSwitchMainSkill(jsonArg)
     CritChance = output.CritChance or 0,
     CritMultiplier = output.CritMultiplier or 0,
     AverageDamage = output.AverageDamage or 0,
+    AverageHit = dmgSrc.AverageHit or output.AverageHit or 0,
+    TotalMin = totalMin,
+    TotalMax = totalMax,
     ManaCost = output.ManaCost or 0,
+    damageTypes = damageTypes,
   }
 
   -- Also update SkillDPS
@@ -1997,6 +2063,191 @@ function pobWebGetGemsData(jsonArg)
 
   return dkjson.encode(result)
 end
+
+-- Get available support gems filtered by compatibility with a socket group's active skills
+-- If groupIndex is provided, filters by canGrantedEffectSupportActiveSkill
+function pobWebGetAvailableSupports(jsonArg)
+  if not build or not build.data or not build.data.gems then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+  local args = dkjson.decode(jsonArg)
+  local groupIndex = args and args.groupIndex
+
+  -- Get active skills from the socket group for compatibility filtering
+  local activeSkills
+  if groupIndex then
+    local group = build.skillsTab.socketGroupList[groupIndex]
+    if group and group.displaySkillList and group.displaySkillList[1] then
+      activeSkills = group.displaySkillList
+    end
+  end
+
+  local result = {}
+  for gemId, gemData in pairs(build.data.gems) do
+    if gemData.grantedEffect and gemData.grantedEffect.support then
+      -- Filter by compatibility if we have active skills
+      local compatible = true
+      if activeSkills then
+        compatible = false
+        for _, activeSkill in ipairs(activeSkills) do
+          if calcLib.canGrantedEffectSupportActiveSkill(gemData.grantedEffect, activeSkill) then
+            compatible = true
+            break
+          end
+        end
+      end
+      if compatible then
+        local colorStr = "normal"
+        if gemData.grantedEffect.color == 1 then colorStr = "str"
+        elseif gemData.grantedEffect.color == 2 then colorStr = "dex"
+        elseif gemData.grantedEffect.color == 3 then colorStr = "int"
+        end
+        result[#result + 1] = { id = gemId, name = gemData.name or "", color = colorStr }
+      end
+    end
+  end
+  table.sort(result, function(a, b) return a.name < b.name end)
+  return dkjson.encode(result)
+end
+
+-- Replace a gem in a socket group, recalculate, and return updated data
+function pobWebReplaceGem(jsonArg)
+  if not build or not build.skillsTab then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+  local args = dkjson.decode(jsonArg)
+  if not args or not args.groupIndex then
+    return dkjson.encode({ error = "missing groupIndex" })
+  end
+  local group = build.skillsTab.socketGroupList[args.groupIndex]
+  if not group then
+    return dkjson.encode({ error = "invalid group index" })
+  end
+  local gemIndex = args.gemIndex
+  if not gemIndex then
+    return dkjson.encode({ error = "missing gemIndex" })
+  end
+
+  if args.gemId == nil or args.gemId == dkjson.null then
+    -- Remove gem
+    table.remove(group.gemList, gemIndex)
+  else
+    local gemInstance = group.gemList[gemIndex]
+    if not gemInstance then
+      -- Create new gem instance at this index
+      gemInstance = {
+        nameSpec = "",
+        level = 1,
+        quality = build.skillsTab.defaultGemQuality or 0,
+        enabled = true,
+        enableGlobal1 = true,
+        enableGlobal2 = true,
+        count = 1,
+        new = true,
+      }
+      group.gemList[gemIndex] = gemInstance
+    end
+    gemInstance.gemId = args.gemId
+    gemInstance.skillId = nil
+  end
+
+  -- Re-process the socket group to resolve gemData
+  build.skillsTab:ProcessSocketGroup(group)
+
+  -- Update gem level for the changed gem
+  if args.gemId and group.gemList[gemIndex] and group.gemList[gemIndex].gemData then
+    local gem = group.gemList[gemIndex]
+    gem.level = build.skillsTab:ProcessGemLevel(gem.gemData)
+    gem.naturalMaxLevel = gem.level
+  end
+
+  -- Trigger full recalculation (modFlag + buildFlag like skill switch)
+  installVarControlsStub()
+  build.modFlag = true
+  build.buildFlag = true
+  pcall(runCallback, "OnFrame")
+
+  -- Refresh misc calculator after recalc (invalidated by gem change)
+  pcall(function()
+    build.calcsTab.miscCalculator = { build.calcsTab.calcs.getMiscCalculator(build) }
+  end)
+
+  -- Return updated gems + skills + display stats
+  local gemsResult = dkjson.decode(pobWebGetGemsData("{}"))
+  local skillsResult = dkjson.decode(pobWebGetSkillsData("{}"))
+  local displayResult = dkjson.decode(pobWebGetDisplayStats("{}"))
+
+  return dkjson.encode({
+    gems = gemsResult,
+    skills = skillsResult,
+    displayStats = (displayResult and displayResult.groups) or {},
+  })
+end
+
+-- Calculate DPS for each candidate support gem swapped into a slot
+-- Uses PoB's efficient pattern: swap gemData + level, call calcFunc, restore
+function pobWebCalcSupportDps(jsonArg)
+  if not build or not build.skillsTab or not build.calcsTab then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+  local args = dkjson.decode(jsonArg)
+  if not args or not args.groupIndex or not args.gemIndex then
+    return dkjson.encode({ error = "missing groupIndex/gemIndex" })
+  end
+  local group = build.skillsTab.socketGroupList[args.groupIndex]
+  if not group then
+    return dkjson.encode({ error = "invalid group index" })
+  end
+  local gemInstance = group.gemList[args.gemIndex]
+  if not gemInstance then
+    return dkjson.encode({ error = "invalid gem index" })
+  end
+
+  -- Get misc calculator (cached calcFunc + baseline)
+  local calcFunc, calcBase
+  local ok, err = pcall(function()
+    calcFunc, calcBase = build.calcsTab:GetMiscCalculator()
+  end)
+  if not ok or not calcFunc then
+    return dkjson.encode({ error = "GetMiscCalculator failed: " .. tostring(err) })
+  end
+
+  local baseDps = calcBase.CombinedDPS or 0
+
+  -- Save original gem state
+  local savedGemData = gemInstance.gemData
+  local savedLevel = gemInstance.level
+  local savedDisplayEffect = gemInstance.displayEffect
+
+  local result = {}
+  local candidates = args.candidates or {}
+
+  for _, cand in ipairs(candidates) do
+    local candGemData = build.data.gems[cand.id]
+    if candGemData then
+      -- Swap in candidate (lightweight — no ProcessSocketGroup needed)
+      gemInstance.gemData = candGemData
+      gemInstance.displayEffect = nil
+      local lvlOk, lvl = pcall(build.skillsTab.ProcessGemLevel, build.skillsTab, candGemData)
+      gemInstance.level = lvlOk and lvl or (candGemData.naturalMaxLevel or 1)
+
+      -- Calculate with this gem
+      local calcOk, output = pcall(calcFunc, nil, true)
+      local dps = 0
+      if calcOk and output then
+        dps = (output.CombinedDPS or 0) - baseDps
+      end
+      result[#result + 1] = { id = cand.id, dps = dps }
+    end
+  end
+
+  -- Restore original gem
+  gemInstance.gemData = savedGemData
+  gemInstance.level = savedLevel
+  gemInstance.displayEffect = savedDisplayEffect
+
+  return dkjson.encode({ baseDps = baseDps, results = result })
+end
 `;
 
 async function initEngine(): Promise<boolean> {
@@ -2428,6 +2679,73 @@ self.onmessage = async (e: MessageEvent<CalcRequest & { _id?: string }>) => {
         }
       } catch (e) {
         respond(_id, { type: "gems", data: [], error: String(e) });
+      }
+      break;
+    }
+
+    case "getAvailableSupports": {
+      if (!initialized) {
+        respond(_id, { type: "availableSupports", data: [], error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebGetAvailableSupports", JSON.stringify({ groupIndex: msg.groupIndex }));
+        const cleaned = result.replace(/Ois\?\?n/g, "Oisin").replace(/\?\?/g, "");
+        const data = JSON.parse(cleaned);
+        if (data.error) {
+          respond(_id, { type: "availableSupports", data: [], error: data.error });
+        } else {
+          respond(_id, { type: "availableSupports", data });
+        }
+      } catch (e) {
+        respond(_id, { type: "availableSupports", data: [], error: String(e) });
+      }
+      break;
+    }
+
+    case "replaceGem": {
+      if (!initialized) {
+        respond(_id, { type: "replaceGem", data: { gems: [], skills: { mainSocketGroup: 1, fullDps: 0, skills: [], groups: [] }, displayStats: [] }, error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebReplaceGem", JSON.stringify({
+          groupIndex: msg.groupIndex,
+          gemIndex: msg.gemIndex,
+          gemId: msg.gemId,
+        }));
+        const cleaned = result.replace(/Ois\?\?n/g, "Oisin").replace(/\?\?/g, "");
+        const data = JSON.parse(cleaned);
+        if (data.error) {
+          respond(_id, { type: "replaceGem", data: { gems: [], skills: { mainSocketGroup: 1, fullDps: 0, skills: [], groups: [] }, displayStats: [] }, error: data.error });
+        } else {
+          respond(_id, { type: "replaceGem", data });
+        }
+      } catch (e) {
+        respond(_id, { type: "replaceGem", data: { gems: [], skills: { mainSocketGroup: 1, fullDps: 0, skills: [], groups: [] }, displayStats: [] }, error: String(e) });
+      }
+      break;
+    }
+
+    case "calcSupportDps": {
+      if (!initialized) {
+        respond(_id, { type: "calcSupportDps", data: { baseDps: 0, results: [] }, error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebCalcSupportDps", JSON.stringify({
+          groupIndex: msg.groupIndex,
+          gemIndex: msg.gemIndex,
+          candidates: msg.candidates,
+        }));
+        const data = JSON.parse(result);
+        if (data.error) {
+          respond(_id, { type: "calcSupportDps", data: { baseDps: 0, results: [] }, error: data.error });
+        } else {
+          respond(_id, { type: "calcSupportDps", data });
+        }
+      } catch (e) {
+        respond(_id, { type: "calcSupportDps", data: { baseDps: 0, results: [] }, error: String(e) });
       }
       break;
     }

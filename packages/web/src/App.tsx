@@ -211,6 +211,7 @@ export function App() {
       useBuildStore.getState().setGemImageUrls(resolveGemImages(gemsResult.value));
     } else console.error("[PoB] getGems failed:", gemsResult.reason);
 
+
     setStats({
       totalDps: stats.TotalDPS || stats.CombinedDPS || 0,
       hitDps: stats.TotalDPS || 0,
@@ -412,7 +413,7 @@ export function App() {
             {sidePanel === "import" ? <ImportPanel /> :
              sidePanel === "stats" ? <StatsPanel /> :
              sidePanel === "skills" ? <SkillsPanel calcClient={calcClientRef.current} /> :
-             sidePanel === "gems" ? <GemsPanel /> :
+             sidePanel === "gems" ? <GemsPanel calcClient={calcClientRef.current} /> :
              sidePanel === "defence" ? <DefencePanel /> :
              sidePanel === "items" ? <InventoryPanel /> :
              <ConfigPanel calcClient={calcClientRef.current} onConfigChange={() => setHeatmapData(null)} />}
@@ -663,7 +664,7 @@ export function App() {
               {sidePanel === "import" ? <ImportPanel /> :
                sidePanel === "stats" ? <StatsPanel /> :
                sidePanel === "skills" ? <SkillsPanel calcClient={calcClientRef.current} /> :
-               sidePanel === "gems" ? <GemsPanel /> :
+               sidePanel === "gems" ? <GemsPanel calcClient={calcClientRef.current} /> :
                sidePanel === "defence" ? <DefencePanel /> :
                sidePanel === "items" ? <InventoryPanel /> :
                <ConfigPanel calcClient={calcClientRef.current} onConfigChange={() => setHeatmapData(null)} />}

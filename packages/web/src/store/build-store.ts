@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { PobBuild } from "../worker/build-decoder";
-import type { SkillsData, CalcSection, JewelInfo, EquippedItem, DisplayStatGroup, GemsData } from "../worker/calc-api";
+import type { SkillsData, CalcSection, JewelInfo, EquippedItem, DisplayStatGroup, GemsData, AvailableGem } from "../worker/calc-api";
 
 export interface CalcStats {
   // Offence
@@ -88,6 +88,7 @@ interface BuildState {
   jewelImageUrls: Record<string, string>;
   gemsData: GemsData | null;
   gemImageUrls: Record<string, string>;
+  availableSupports: AvailableGem[] | null;
 
   // Node counts (from PoB's CountAllocNodes)
   passivesUsed: number;
@@ -122,6 +123,7 @@ interface BuildState {
   setJewelImageUrls: (urls: Record<string, string>) => void;
   setGemsData: (data: GemsData) => void;
   setGemImageUrls: (urls: Record<string, string>) => void;
+  setAvailableSupports: (data: AvailableGem[]) => void;
   setNodeCounts: (passives: number, ascendancy: number, ws1: number, ws2: number) => void;
   setSelectedSkillGroup: (group: number) => void;
   toggleNode: (nodeId: number) => void;
@@ -159,6 +161,7 @@ export const useBuildStore = create<BuildState>((set) => ({
   jewelImageUrls: {},
   gemsData: null,
   gemImageUrls: {},
+  availableSupports: null,
   passivesUsed: 0,
   ascendancyUsed: 0,
   weaponSet1Used: 0,
@@ -200,6 +203,7 @@ export const useBuildStore = create<BuildState>((set) => ({
   setJewelImageUrls: (jewelImageUrls) => set({ jewelImageUrls }),
   setGemsData: (gemsData) => set({ gemsData }),
   setGemImageUrls: (gemImageUrls) => set({ gemImageUrls }),
+  setAvailableSupports: (availableSupports) => set({ availableSupports }),
   setNodeCounts: (passivesUsed, ascendancyUsed, weaponSet1Used, weaponSet2Used) => set({ passivesUsed, ascendancyUsed, weaponSet1Used, weaponSet2Used }),
   setSelectedSkillGroup: (selectedSkillGroup) => set({ selectedSkillGroup }),
 
@@ -238,6 +242,7 @@ export const useBuildStore = create<BuildState>((set) => ({
       jewelImageUrls: {},
       gemsData: null,
       gemImageUrls: {},
+      availableSupports: null,
       passivesUsed: 0,
       ascendancyUsed: 0,
       weaponSet1Used: 0,

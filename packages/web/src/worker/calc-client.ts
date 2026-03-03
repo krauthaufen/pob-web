@@ -2,7 +2,7 @@
  * Client-side wrapper for the PoB calculation Web Worker.
  * Provides a promise-based API for sending commands and receiving results.
  */
-import type { CalcRequest, CalcResponse, SkillsData, SwitchSkillResult, NodeImpact, AllocResult, CalcSection, JewelInfo, EquippedItem, DisplayStatGroup, NodePowerData, ConfigData, GemsData } from "./calc-api";
+import type { CalcRequest, CalcResponse, SkillsData, SwitchSkillResult, NodeImpact, AllocResult, CalcSection, JewelInfo, EquippedItem, DisplayStatGroup, NodePowerData, ConfigData, GemsData, AvailableGem } from "./calc-api";
 
 export class CalcClient {
   private worker: Worker;
@@ -161,6 +161,24 @@ export class CalcClient {
     const res = await this.send({ type: "getGems" });
     if (res.type === "gems") return res.data;
     return [];
+  }
+
+  async getAvailableSupports(groupIndex?: number): Promise<AvailableGem[]> {
+    const res = await this.send({ type: "getAvailableSupports", groupIndex });
+    if (res.type === "availableSupports") return res.data;
+    return [];
+  }
+
+  async calcSupportDps(groupIndex: number, gemIndex: number, candidates: { id: string }[]): Promise<{ baseDps: number; results: { id: string; dps: number }[] }> {
+    const res = await this.send({ type: "calcSupportDps", groupIndex, gemIndex, candidates });
+    if (res.type === "calcSupportDps") return res.data;
+    return { baseDps: 0, results: [] };
+  }
+
+  async replaceGem(groupIndex: number, gemIndex: number, gemId: string | null): Promise<{ gems: GemsData; skills: SkillsData; displayStats: DisplayStatGroup[] }> {
+    const res = await this.send({ type: "replaceGem", groupIndex, gemIndex, gemId });
+    if (res.type === "replaceGem") return res.data;
+    return { gems: [], skills: { mainSocketGroup: 1, fullDps: 0, skills: [], groups: [] }, displayStats: [] };
   }
 
   async exportBuild(): Promise<string> {

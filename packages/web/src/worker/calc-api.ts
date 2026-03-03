@@ -23,6 +23,9 @@ export type CalcRequest =
   | { type: "setConfig"; var: string; value: boolean | number | string | null }
   | { type: "resetConfig" }
   | { type: "getGems" }
+  | { type: "getAvailableSupports"; groupIndex?: number }
+  | { type: "replaceGem"; groupIndex: number; gemIndex: number; gemId: string | null }
+  | { type: "calcSupportDps"; groupIndex: number; gemIndex: number; candidates: { id: string }[] }
   | { type: "exec"; code: string };
 
 /** Per-skill DPS entry from PoB's calcFullDPS (output.SkillDPS) */
@@ -44,6 +47,13 @@ export interface SocketGroupInfo {
   includeInFullDPS: boolean;
 }
 
+/** Per-damage-type breakdown */
+export interface DamageTypeBreakdown {
+  min: number;
+  max: number;
+  average: number;
+}
+
 /** Detailed stats for the currently selected main skill */
 export interface MainSkillStats {
   TotalDPS: number;
@@ -58,6 +68,10 @@ export interface MainSkillStats {
   CritMultiplier: number;
   AverageDamage: number;
   ManaCost: number;
+  AverageHit: number;
+  TotalMin: number;
+  TotalMax: number;
+  damageTypes: Record<string, DamageTypeBreakdown>;
 }
 
 /** Full skills data returned by getSkills */
@@ -248,6 +262,13 @@ export interface SocketGroupGems {
 /** All socket groups with gem details */
 export type GemsData = SocketGroupGems[];
 
+/** An available gem from PoB's gem database */
+export interface AvailableGem {
+  id: string;
+  name: string;
+  color: "str" | "dex" | "int" | "normal";
+}
+
 /** Response from allocNode / deallocNode */
 export interface AllocResult {
   success: boolean;
@@ -276,6 +297,9 @@ export type CalcResponse =
   | { type: "setConfig"; data: { success: boolean }; error?: string }
   | { type: "resetConfig"; data: { success: boolean }; error?: string }
   | { type: "gems"; data: GemsData; error?: string }
+  | { type: "availableSupports"; data: AvailableGem[]; error?: string }
+  | { type: "replaceGem"; data: { gems: GemsData; skills: SkillsData; displayStats: DisplayStatGroup[] }; error?: string }
+  | { type: "calcSupportDps"; data: { baseDps: number; results: { id: string; dps: number }[] }; error?: string }
   | { type: "error"; message: string }
   | { type: "log"; message: string }
   | { type: "exec"; result?: string; error?: string };
