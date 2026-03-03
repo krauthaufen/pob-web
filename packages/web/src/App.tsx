@@ -307,13 +307,31 @@ export function App() {
       });
   }, []);
 
-  // Auto-import: restore last build from localStorage, or fall back to example
+  // Auto-import: shared URL (/b/:key) > localStorage > example build
   useEffect(() => {
     if (build) return; // already have a build
     (async () => {
       try {
-        let code: string;
-        try { code = localStorage.getItem("pob-import-code") || EXAMPLE_CODE; } catch { code = EXAMPLE_CODE; }
+        let code: string | undefined;
+
+        // Check for share URL: /b/:key
+        const shareMatch = window.location.pathname.match(/^\/b\/([a-zA-Z0-9]+)$/);
+        if (shareMatch) {
+          try {
+            const res = await fetch(`/api/raw/${shareMatch[1]}`);
+            if (res.ok) {
+              code = await res.text();
+              history.replaceState(null, "", "/");
+            }
+          } catch (e) {
+            console.warn("Failed to fetch shared build:", e);
+          }
+        }
+
+        if (!code) {
+          try { code = localStorage.getItem("pob-import-code") || EXAMPLE_CODE; } catch { code = EXAMPLE_CODE; }
+        }
+
         const ninjaUrl = parsePoeNinjaUrl(code);
         if (ninjaUrl) {
           code = await fetchPoeNinjaBuild(ninjaUrl.account, ninjaUrl.character);

@@ -18,7 +18,12 @@ rsync -az --delete \
   "$WEB/dist/" \
   "$HOST:$DEST/"
 
-echo "==> Restarting container..."
+echo "==> Syncing deploy configs..."
+rsync -az \
+  deploy/docker-compose.yml deploy/nginx.conf \
+  "$HOST:/home/schorsch/docker/pob/"
+
+echo "==> Restarting containers..."
 ssh "$HOST" "cd /home/schorsch/docker/pob && docker compose up -d"
 
 echo "==> Done. Live at https://pob.awx.at"

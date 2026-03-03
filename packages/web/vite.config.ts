@@ -25,6 +25,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/poe-ninja-api/, ""),
       },
+      "/api": {
+        target: "http://localhost:7777",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ""),
+      },
     },
   },
   assetsInclude: ["**/*.wasm"],

@@ -15,6 +15,8 @@ export function ImportPanel() {
   });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [shareMsg, setShareMsg] = useState<string | null>(null);
   const { setBuild, setImportCode, setOriginalImportCode, importCode: currentCode, originalImportCode, build } = useBuildStore();
 
   const doImport = useCallback((code: string) => {
@@ -51,6 +53,49 @@ export function ImportPanel() {
     }
   }, [input, doImport]);
 
+  const handleShare = useCallback(() => {
+    const code = currentCode || input;
+    if (!code.trim()) return;
+    setSharing(true);
+    setShareMsg(null);
+    setError(null);
+
+    // Build the URL promise (fetch is async but we need clipboard.write in the same tick)
+    const urlPromise = fetch("/api/documents", { method: "POST", body: code })
+      .then((res) => {
+        if (!res.ok) throw new Error(`Server returned ${res.status}`);
+        return res.json();
+      })
+      .then(({ key }) => `${window.location.origin}/b/${key}`);
+
+    // Safari requires clipboard.write() to be called synchronously in the user gesture.
+    // Pass the async Promise inside ClipboardItem so Safari resolves it internally.
+    const clipboardItem = new ClipboardItem({
+      "text/plain": urlPromise.then((url) => new Blob([url], { type: "text/plain" })),
+    });
+
+    navigator.clipboard.write([clipboardItem])
+      .then(() => {
+        setShareMsg("Link copied!");
+        setTimeout(() => setShareMsg(null), 5000);
+      })
+      .catch(() => {
+        // Fallback: show URL in textarea for manual copy
+        urlPromise.then((url) => {
+          setInput(url);
+          setShareMsg("Link ready — copy from above");
+          setTimeout(() => setShareMsg(null), 5000);
+        });
+      })
+      .finally(() => setSharing(false));
+
+    // Handle fetch errors
+    urlPromise.catch((e) => {
+      setError(e instanceof Error ? e.message : "Failed to share build");
+      setSharing(false);
+    });
+  }, [currentCode, input]);
+
   return (
     <div className="flex flex-col gap-3 p-4">
       <h2 className="text-sm font-semibold uppercase tracking-wider text-poe-accent">
@@ -74,6 +119,15 @@ export function ImportPanel() {
         >
           {loading ? "Fetching..." : "Import"}
         </button>
+        {build && (
+          <button
+            className="rounded border border-poe-border px-3 py-2 text-sm text-gray-400 transition hover:border-poe-accent hover:text-poe-text disabled:opacity-50"
+            onClick={handleShare}
+            disabled={sharing}
+          >
+            {sharing ? "Sharing..." : shareMsg || "Share"}
+          </button>
+        )}
         {build && originalImportCode && currentCode !== originalImportCode && (
           <button
             className="rounded border border-poe-border px-3 py-2 text-sm text-gray-400 transition hover:border-poe-accent hover:text-poe-text"

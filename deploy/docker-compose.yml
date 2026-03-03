@@ -1,0 +1,51 @@
+services:
+  pob:
+    image: nginx:alpine
+    container_name: pob
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - web
+      - internal
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=web"
+
+      - "traefik.http.routers.pob.entrypoints=http"
+      - "traefik.http.routers.pob.rule=Host(`pob.haaser.me`) || Host(`pob.awx.at`)"
+      - "traefik.http.routers.pob.middlewares=https-redirect"
+      - "traefik.http.routers.pob.service=pob"
+
+      - "traefik.http.routers.pob-secure.rule=Host(`pob.haaser.me`) || Host(`pob.awx.at`)"
+      - "traefik.http.routers.pob-secure.entrypoints=https"
+      - "traefik.http.routers.pob-secure.service=pob"
+      - "traefik.http.routers.pob-secure.tls.certresolver=httpresolver"
+
+      - "traefik.http.services.pob.loadbalancer.server.port=80"
+
+  haste:
+    image: rlister/hastebin
+    container_name: pob-haste
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      STORAGE_TYPE: file
+      STORAGE_FILEPATH: /app/data
+    volumes:
+      - haste-data:/app/data
+    networks:
+      - internal
+
+volumes:
+  haste-data:
+
+networks:
+  web:
+    external: true
+  internal:
+    driver: bridge
