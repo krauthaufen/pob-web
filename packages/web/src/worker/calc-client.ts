@@ -9,6 +9,7 @@ export class CalcClient {
   private pending = new Map<string, { resolve: (v: CalcResponse) => void; reject: (e: Error) => void }>();
   private idCounter = 0;
   private onLog?: (msg: string) => void;
+  private onNodePowerProgress?: (processed: number, total: number) => void;
 
   constructor(onLog?: (msg: string) => void) {
     this.onLog = onLog;
@@ -19,6 +20,10 @@ export class CalcClient {
       const { _id, ...response } = e.data;
       if (response.type === "log") {
         this.onLog?.(response.message);
+        return;
+      }
+      if ((response as any).type === "nodePowerProgress") {
+        this.onNodePowerProgress?.((response as any).processed, (response as any).total);
         return;
       }
       if (_id && this.pending.has(_id)) {
@@ -123,10 +128,15 @@ export class CalcClient {
     return { deltas: {}, pathCount: 1, pathNodes: [] };
   }
 
-  async getNodePower(): Promise<NodePowerData> {
-    const res = await this.send({ type: "getNodePower" });
-    if (res.type === "nodePower") return res.data;
-    return { nodes: {}, max: { off: 0, def: 0 }, topNodes: [] };
+  async getNodePower(onProgress?: (processed: number, total: number) => void): Promise<NodePowerData> {
+    this.onNodePowerProgress = onProgress;
+    try {
+      const res = await this.send({ type: "getNodePower" });
+      if (res.type === "nodePower") return res.data;
+      return { nodes: {}, max: { off: 0, def: 0 }, topNodes: [] };
+    } finally {
+      this.onNodePowerProgress = undefined;
+    }
   }
 
   async getConfigOptions(): Promise<ConfigData> {

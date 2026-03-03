@@ -789,6 +789,130 @@ function pobWebCalcNodeImpact(jsonArg)
   return dkjson.encode({ deltas = deltas, pathCount = pathCount, pathNodes = pathNodes })
 end
 
+-- Node power state for batched calculation
+local nodePowerState = nil
+
+-- Initialize node power calculation, returns { total = N }
+function pobWebNodePowerInit(jsonArg)
+  nodePowerState = nil
+  if not build or not build.calcsTab then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+  if not build.calcsTab.miscCalculator then
+    local initOk, res = pcall(function()
+      build.calcsTab.miscCalculator = { build.calcsTab.calcs.getMiscCalculator(build) }
+    end)
+    if not initOk then
+      return dkjson.encode({ error = "getMiscCalculator init failed: " .. tostring(res) })
+    end
+  end
+  local miscOk, calcFunc, calcBase = pcall(build.calcsTab.GetMiscCalculator, build.calcsTab)
+  if not miscOk then
+    return dkjson.encode({ error = "GetMiscCalculator failed: " .. tostring(calcFunc) })
+  end
+  local eligible = {}
+  for nodeId, node in pairs(build.spec.nodes) do
+    if not node.alloc and node.modKey and node.modKey ~= "" then
+      if node.type ~= "ClassStart" and node.type ~= "AscendClassStart" and not node.isOnlyImage then
+        eligible[#eligible + 1] = { id = nodeId, node = node }
+      end
+    end
+  end
+  nodePowerState = {
+    eligible = eligible,
+    calcFunc = calcFunc,
+    calcBase = calcBase,
+    cache = {},
+    result = {},
+    maxOff = 0,
+    maxDef = 0,
+    index = 1,
+  }
+  return dkjson.encode({ total = #eligible })
+end
+
+-- Process a batch of nodes, returns { done, processed, total }
+function pobWebNodePowerBatch(jsonArg)
+  local args = dkjson.decode(jsonArg)
+  local batchSize = args and args.batchSize or 50
+  if not nodePowerState then
+    return dkjson.encode({ error = "not initialized" })
+  end
+  local s = nodePowerState
+  local endIdx = math.min(s.index + batchSize - 1, #s.eligible)
+  for i = s.index, endIdx do
+    local entry = s.eligible[i]
+    local node = entry.node
+    local output = s.cache[node.modKey]
+    if not output then
+      local ok, res = pcall(s.calcFunc, { addNodes = { [node] = true } }, true)
+      if ok then
+        s.cache[node.modKey] = res
+        output = res
+      end
+    end
+    if output then
+      local ok, off, def = pcall(build.calcsTab.CalculateCombinedOffDefStat, build.calcsTab, output, s.calcBase)
+      if ok and type(off) == "number" and type(def) == "number" then
+        local h = node.id or entry.id
+        s.result[tostring(h)] = { off = off, def = def }
+        if off > s.maxOff then s.maxOff = off end
+        if def > s.maxDef then s.maxDef = def end
+      end
+    end
+  end
+  s.index = endIdx + 1
+  local done = s.index > #s.eligible
+  return dkjson.encode({ done = done, processed = endIdx, total = #s.eligible })
+end
+
+-- Finalize: build top nodes and return full result
+function pobWebNodePowerFinish(jsonArg)
+  if not nodePowerState then
+    return dkjson.encode({ error = "not initialized" })
+  end
+  local s = nodePowerState
+  local result = s.result
+  local groups = {}
+  for hashStr, power in pairs(result) do
+    local node = build.spec.nodes[tonumber(hashStr)]
+    if node and power.off + power.def > 0 and not node.ascendancyName then
+      local dist = node.pathDist or 1000
+      local score = (math.max(power.off, 0) + math.max(power.def, 0)) / math.max(dist, 1)
+      local isSmall = node.type ~= "Notable" and node.type ~= "Keystone" and node.type ~= "JewelSocket"
+      local groupKey = isSmall and (node.modKey or hashStr) or hashStr
+      local existing = groups[groupKey]
+      if not existing then
+        groups[groupKey] = {
+          hash = tonumber(hashStr), name = node.dn or "?", type = node.type or "Normal",
+          off = power.off, def = power.def, pathDist = dist, score = score, count = 1,
+        }
+      else
+        existing.count = existing.count + 1
+        if score > existing.score then
+          existing.hash = tonumber(hashStr)
+          existing.name = node.dn or "?"
+          existing.pathDist = dist
+          existing.score = score
+          existing.off = power.off
+          existing.def = power.def
+        end
+      end
+    end
+  end
+  local ranked = {}
+  for _, entry in pairs(groups) do ranked[#ranked + 1] = entry end
+  table.sort(ranked, function(a, b) return a.score > b.score end)
+  local topNodes = {}
+  for i = 1, math.min(30, #ranked) do
+    local r = ranked[i]
+    topNodes[i] = { hash = r.hash, name = r.name, type = r.type, off = r.off, def = r.def, pathDist = r.pathDist, count = r.count }
+  end
+  nodePowerState = nil
+  return dkjson.encode({ nodes = result, max = { off = s.maxOff, def = s.maxDef }, topNodes = topNodes })
+end
+
+-- Legacy single-call version (kept for compatibility)
 -- Calculate combined offence/defence power for all unallocated nodes (heatmap).
 -- Uses PoB's CalculateCombinedOffDefStat for each node, cached by modKey.
 -- Returns { nodes = { [hash] = { off, def } }, max = { off, def } }
@@ -2177,13 +2301,39 @@ self.onmessage = async (e: MessageEvent<CalcRequest & { _id?: string }>) => {
         break;
       }
       try {
-        const result = bridge_call_json("pobWebGetNodePower", "{}");
-        const data = JSON.parse(result);
-        if (data.error) {
-          respond(_id, { type: "nodePower", data: emptyPower, error: data.error });
-        } else {
-          respond(_id, { type: "nodePower", data });
+        // Init
+        const initResult = JSON.parse(bridge_call_json("pobWebNodePowerInit", "{}"));
+        if (initResult.error) {
+          respond(_id, { type: "nodePower", data: emptyPower, error: initResult.error });
+          break;
         }
+        const total = initResult.total;
+
+        // Batch loop — process 50 nodes at a time, yielding to allow progress messages
+        const runBatch = () => {
+          try {
+            const batchResult = JSON.parse(bridge_call_json("pobWebNodePowerBatch", JSON.stringify({ batchSize: 50 })));
+            // Send progress
+            self.postMessage({ type: "nodePowerProgress", processed: batchResult.processed, total });
+            if (!batchResult.done) {
+              // Yield to event loop so progress message is delivered, then continue
+              setTimeout(runBatch, 0);
+            } else {
+              // Finish
+              const finalResult = JSON.parse(bridge_call_json("pobWebNodePowerFinish", "{}"));
+              if (finalResult.error) {
+                respond(_id, { type: "nodePower", data: emptyPower, error: finalResult.error });
+              } else {
+                respond(_id, { type: "nodePower", data: finalResult });
+              }
+            }
+          } catch (e) {
+            respond(_id, { type: "nodePower", data: emptyPower, error: String(e) });
+          }
+        };
+        // Send initial progress
+        self.postMessage({ type: "nodePowerProgress", processed: 0, total });
+        runBatch();
       } catch (e) {
         respond(_id, { type: "nodePower", data: emptyPower, error: String(e) });
       }

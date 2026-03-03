@@ -97,6 +97,7 @@ export function App() {
     } catch {}
   }, [getHeatmapFingerprint]);
   const [heatmapLoading, setHeatmapLoading] = useState(false);
+  const [heatmapProgress, setHeatmapProgress] = useState<{ processed: number; total: number } | null>(null);
   const allocatedNodes = useBuildStore((s) => s.allocatedNodes);
   const calcClientRef = useRef<CalcClient | null>(null);
   const pendingBuildRef = useRef<string | null>(null);
@@ -494,13 +495,17 @@ export function App() {
                   const client = calcClientRef.current;
                   if (!client) return;
                   setHeatmapLoading(true);
+                  setHeatmapProgress({ processed: 0, total: 0 });
                   try {
-                    const data = await client.getNodePower();
+                    const data = await client.getNodePower((processed, total) => {
+                      setHeatmapProgress({ processed, total });
+                    });
                     setHeatmapData(data);
                   } catch (e) {
                     console.error("[PoB] getNodePower failed:", e);
                   } finally {
                     setHeatmapLoading(false);
+                    setHeatmapProgress(null);
                   }
                 }}
                 title={heatmapData ? "Hide node power heatmap" : "Show node power heatmap (offence=red, defence=blue)"}
@@ -558,6 +563,21 @@ export function App() {
             </div>
           );
         })()}
+
+        {/* Node power progress overlay */}
+        {heatmapProgress && heatmapProgress.total > 0 && (
+          <div className="pointer-events-none absolute bottom-3 left-1/2 z-30 -translate-x-1/2 rounded bg-poe-panel/90 px-4 py-2 backdrop-blur-sm">
+            <div className="mb-1 text-center text-xs text-gray-400">
+              Calculating power... {heatmapProgress.processed}/{heatmapProgress.total}
+            </div>
+            <div className="h-1.5 w-48 overflow-hidden rounded-full bg-gray-800">
+              <div
+                className="h-full rounded-full bg-poe-accent transition-all duration-200"
+                style={{ width: `${(heatmapProgress.processed / heatmapProgress.total) * 100}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Engine boot log */}
         {engineLogs.length > 0 && engineStatus === "loading" && (
