@@ -2,9 +2,8 @@ import { useState, useRef, useCallback } from "react";
 import { useBuildStore } from "@/store/build-store";
 import type { EquippedItem, ModLine, JewelInfo, SlotItemEntry } from "@/worker/calc-api";
 import type { CalcClient } from "@/worker/calc-client";
-import { encodeBuildCode } from "@/worker/build-decoder";
+import { refreshAll } from "@/utils/refresh-all";
 import { isTouchDevice } from "@/utils/is-touch";
-import { resolveItemImages } from "@/utils/item-images";
 
 // --- PoB rarity colors (from Data/Global.lua colorCodes) ---
 const RARITY_COLOR: Record<string, string> = {
@@ -688,7 +687,7 @@ function JewelCell({
 
 // --- Main panel ---
 export function InventoryPanel({ calcClient }: { calcClient?: CalcClient | null }) {
-  const { equippedItems, build, itemImageUrls: imageUrls, runeImageUrls, jewelImageUrls, jewelData, focusNode, setEquippedItems } = useBuildStore();
+  const { equippedItems, build, itemImageUrls: imageUrls, runeImageUrls, jewelImageUrls, jewelData, focusNode } = useBuildStore();
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [weaponSet, setWeaponSet] = useState<1 | 2>(1);
   const [hoveredItem, setHoveredItem] = useState<{ item: EquippedItem; rect: DOMRect } | null>(null);
@@ -709,19 +708,11 @@ export function InventoryPanel({ calcClient }: { calcClient?: CalcClient | null 
       }
       setShowPasteModal(false);
       setPasteError(null);
-      // Refresh items and persist build
-      const items = await calcClient.getItems();
-      setEquippedItems(items);
-      resolveItemImages(items).then((urls) => {
-        useBuildStore.getState().setItemImageUrls(urls);
-      });
-      calcClient.exportBuild().then((xml) => {
-        if (xml) useBuildStore.getState().setImportCode(encodeBuildCode(xml));
-      }).catch(() => {});
+      await refreshAll(calcClient);
     } catch (e) {
       setPasteError(String(e));
     }
-  }, [calcClient, setEquippedItems]);
+  }, [calcClient]);
 
   const handleSelectSlot = useCallback(async (slotName: string) => {
     setSelectedSlot(slotName);
@@ -741,32 +732,13 @@ export function InventoryPanel({ calcClient }: { calcClient?: CalcClient | null 
   const handleEquipItem = useCallback(async (itemId: number) => {
     if (!calcClient || !selectedSlot) return;
     try {
-      const result = await calcClient.equipItem(itemId, selectedSlot);
-      if (result.items.length > 0) {
-        setEquippedItems(result.items);
-        resolveItemImages(result.items).then((urls) => {
-          useBuildStore.getState().setItemImageUrls(urls);
-        });
-      }
-      // Fetch updated stats separately (avoids double-encode issues)
-      const store = useBuildStore.getState();
-      const [displayStats, skills, calcDisplay] = await Promise.all([
-        calcClient.getDisplayStats(),
-        calcClient.getSkills(),
-        calcClient.getCalcDisplay(),
-      ]);
-      store.setDisplayStats(displayStats);
-      store.setSkillsData(skills);
-      store.setCalcDisplay(calcDisplay);
-      // Persist build code so custom items survive reload
-      calcClient.exportBuild().then((xml) => {
-        if (xml) store.setImportCode(encodeBuildCode(xml));
-      }).catch(() => {});
+      await calcClient.equipItem(itemId, selectedSlot);
+      await refreshAll(calcClient);
       setSelectedSlot(null);
     } catch {
       // ignore
     }
-  }, [calcClient, selectedSlot, setEquippedItems]);
+  }, [calcClient, selectedSlot]);
 
   if (!build) {
     return (

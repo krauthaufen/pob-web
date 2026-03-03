@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { useBuildStore } from "@/store/build-store";
 import type { GemInfo, SocketGroupGems, AvailableGem } from "@/worker/calc-api";
 import type { CalcClient } from "@/worker/calc-client";
-import { resolveGemImages } from "@/utils/item-images";
+import { refreshAll } from "@/utils/refresh-all";
 import { isTouchDevice } from "@/utils/is-touch";
 
 const GEM_COLORS: Record<string, string> = {
@@ -403,12 +403,8 @@ export function GemsPanel({ calcClient }: { calcClient?: CalcClient | null }) {
   const handleToggle = useCallback(async (groupIndex: number, gemIndex: number, enabled: boolean) => {
     if (!calcClient) return;
     try {
-      const result = await calcClient.toggleGem(groupIndex, gemIndex, enabled);
-      const store = useBuildStore.getState();
-      store.setGemsData(result.gems);
-      store.setSkillsData(result.skills);
-      store.setDisplayStats(result.displayStats);
-      calcClient.getCalcDisplay().then(d => store.setCalcDisplay(d)).catch(() => {});
+      await calcClient.toggleGem(groupIndex, gemIndex, enabled);
+      await refreshAll(calcClient);
     } catch (e) {
       console.error("[PoB] Toggle gem failed:", e);
     }
@@ -418,13 +414,8 @@ export function GemsPanel({ calcClient }: { calcClient?: CalcClient | null }) {
     if (!calcClient || !selected) return;
     setReplacing(true);
     try {
-      const result = await calcClient.replaceGem(selected.groupIndex, selected.gemIndex, gem.id);
-      const store = useBuildStore.getState();
-      store.setGemsData(result.gems);
-      store.setGemImageUrls(resolveGemImages(result.gems));
-      store.setSkillsData(result.skills);
-      store.setDisplayStats(result.displayStats);
-      calcClient.getCalcDisplay().then(d => store.setCalcDisplay(d)).catch(() => {});
+      await calcClient.replaceGem(selected.groupIndex, selected.gemIndex, gem.id);
+      await refreshAll(calcClient);
       setShowPicker(false);
       setSelected(null);
     } catch (e) {
@@ -438,13 +429,8 @@ export function GemsPanel({ calcClient }: { calcClient?: CalcClient | null }) {
     if (!calcClient || !selected) return;
     setReplacing(true);
     try {
-      const result = await calcClient.replaceGem(selected.groupIndex, selected.gemIndex, null);
-      const store = useBuildStore.getState();
-      store.setGemsData(result.gems);
-      store.setGemImageUrls(resolveGemImages(result.gems));
-      store.setSkillsData(result.skills);
-      store.setDisplayStats(result.displayStats);
-      calcClient.getCalcDisplay().then(d => store.setCalcDisplay(d)).catch(() => {});
+      await calcClient.replaceGem(selected.groupIndex, selected.gemIndex, null);
+      await refreshAll(calcClient);
       setSelected(null);
     } catch (e) {
       console.error("removeGem failed:", e);

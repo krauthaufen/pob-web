@@ -6,7 +6,7 @@ import type { TreeData } from "./tree-types";
 import type { NodeImpact, NodePowerData } from "@/worker/calc-api";
 import type { CalcClient } from "@/worker/calc-client";
 import { processTree } from "./tree-processor";
-import { encodeBuildCode } from "@/worker/build-decoder";
+import { refreshAll } from "@/utils/refresh-all";
 import { isTouchDevice } from "@/utils/is-touch";
 import { NodeDetailPanel } from "./NodeDetailPanel";
 import { JewelDetailBody } from "@/components/StatsPanel/InventoryPanel";
@@ -117,10 +117,6 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
   const allocatedNodes = useBuildStore((s) => s.allocatedNodes);
   const setAllocatedNodes = useBuildStore((s) => s.setAllocatedNodes);
   const setHoveredNode = useBuildStore((s) => s.setHoveredNode);
-  const setCalcDisplay = useBuildStore((s) => s.setCalcDisplay);
-  const setDisplayStats = useBuildStore((s) => s.setDisplayStats);
-  const setSkillsData = useBuildStore((s) => s.setSkillsData);
-  const setImportCode = useBuildStore((s) => s.setImportCode);
   const jewelData = useBuildStore((s) => s.jewelData);
   const weaponSetNodes = useBuildStore((s) => s.weaponSetNodes);
   const buildAscendancy = useBuildStore((s) => s.build?.ascendancy);
@@ -1052,10 +1048,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       const result = await calcClient.allocNode(selectedNode.hash);
       if (result.success) {
         setAllocatedNodes(result.allocatedNodes);
-        if (result.display) setCalcDisplay(result.display);
-        calcClient.getDisplayStats().then(setDisplayStats).catch(() => {});
-        calcClient.getSkills().then(setSkillsData).catch(() => {});
-        calcClient.exportBuild().then((xml) => { if (xml) setImportCode(encodeBuildCode(xml)); }).catch(() => {});
+        refreshAll(calcClient).catch(() => {});
       }
     } catch (e) {
       console.error("[PoB] allocNode failed:", e);
@@ -1065,7 +1058,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       setSelectedNode(null);
       setNodeImpact(null);
     }
-  }, [selectedNode, calcClient, allocating, setAllocatedNodes, setCalcDisplay, setDisplayStats, setSkillsData, setImportCode]);
+  }, [selectedNode, calcClient, allocating, setAllocatedNodes]);
 
   const handleDeallocate = useCallback(async () => {
     if (!selectedNode || !calcClient || allocating) return;
@@ -1074,10 +1067,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       const result = await calcClient.deallocNode(selectedNode.hash);
       if (result.success) {
         setAllocatedNodes(result.allocatedNodes);
-        if (result.display) setCalcDisplay(result.display);
-        calcClient.getDisplayStats().then(setDisplayStats).catch(() => {});
-        calcClient.getSkills().then(setSkillsData).catch(() => {});
-        calcClient.exportBuild().then((xml) => { if (xml) setImportCode(encodeBuildCode(xml)); }).catch(() => {});
+        refreshAll(calcClient).catch(() => {});
       }
     } catch (e) {
       console.error("[PoB] deallocNode failed:", e);
@@ -1087,7 +1077,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       setSelectedNode(null);
       setNodeImpact(null);
     }
-  }, [selectedNode, calcClient, allocating, setAllocatedNodes, setCalcDisplay, setDisplayStats, setSkillsData, setImportCode]);
+  }, [selectedNode, calcClient, allocating, setAllocatedNodes]);
 
   return (
     <div className="relative h-full w-full">

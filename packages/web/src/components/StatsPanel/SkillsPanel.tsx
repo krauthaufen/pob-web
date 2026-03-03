@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useBuildStore } from "@/store/build-store";
 import type { CalcClient } from "@/worker/calc-client";
 import type { MainSkillStats, SkillDpsEntry, CalcSection, CalcStatRow, SkillPartInfo } from "@/worker/calc-api";
+import { refreshAll } from "@/utils/refresh-all";
 
 function formatNum(value: number): string {
   if (value >= 1000000) return `${(value / 1000000).toFixed(2)}M`;
@@ -73,7 +74,7 @@ interface SkillsPanelProps {
 }
 
 export function SkillsPanel({ calcClient }: SkillsPanelProps) {
-  const { skillsData, build, calcStatus, calcDisplay, setCalcDisplay, setDisplayStats, selectedSkillGroup, setSelectedSkillGroup } = useBuildStore();
+  const { skillsData, build, calcStatus, calcDisplay, selectedSkillGroup, setSelectedSkillGroup } = useBuildStore();
   const [mainStats, setMainStats] = useState<MainSkillStats | null>(null);
   const [skillDps, setSkillDps] = useState<SkillDpsEntry[]>([]);
   const [fullDps, setFullDps] = useState(0);
@@ -96,43 +97,28 @@ export function SkillsPanel({ calcClient }: SkillsPanelProps) {
     setSelectedSkillGroup(index);
     setSwitching(true);
     try {
-      const result = await calcClient.switchMainSkill(index);
-      setMainStats(result.stats);
-      setSkillDps(result.skills);
-      setFullDps(result.fullDps);
-      setParts(result.parts ?? []);
-      setSelectedPart(result.selectedPart ?? 1);
-      if (result.display) {
-        setCalcDisplay(result.display);
-      }
-      calcClient.getDisplayStats().then(setDisplayStats).catch(() => {});
+      await calcClient.switchMainSkill(index);
+      await refreshAll(calcClient);
     } catch (e) {
       console.error("[PoB] Switch skill failed:", e);
     } finally {
       setSwitching(false);
     }
-  }, [calcClient, switching, setCalcDisplay, setDisplayStats, setSelectedSkillGroup]);
+  }, [calcClient, switching, setSelectedSkillGroup]);
 
   const switchPart = useCallback(async (partIndex: number) => {
     if (!calcClient || switching) return;
     setSelectedPart(partIndex);
     setSwitching(true);
     try {
-      const result = await calcClient.switchSkillPart(partIndex);
-      setMainStats(result.stats);
-      setSkillDps(result.skills);
-      setFullDps(result.fullDps);
-      if (result.parts) setParts(result.parts);
-      if (result.display) {
-        setCalcDisplay(result.display);
-      }
-      calcClient.getDisplayStats().then(setDisplayStats).catch(() => {});
+      await calcClient.switchSkillPart(partIndex);
+      await refreshAll(calcClient);
     } catch (e) {
       console.error("[PoB] Switch skill part failed:", e);
     } finally {
       setSwitching(false);
     }
-  }, [calcClient, switching, setCalcDisplay, setDisplayStats]);
+  }, [calcClient, switching]);
 
   if (!build) {
     return (
