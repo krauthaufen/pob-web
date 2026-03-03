@@ -5,13 +5,14 @@ import { SkillsPanel } from "@/components/StatsPanel/SkillsPanel";
 import { DefencePanel } from "@/components/StatsPanel/DefencePanel";
 import { InventoryPanel } from "@/components/StatsPanel/InventoryPanel";
 import { ConfigPanel } from "@/components/StatsPanel/ConfigPanel";
+import { GemsPanel } from "@/components/StatsPanel/GemsPanel";
 import { PassiveTree } from "@/components/PassiveTree/PassiveTree";
 import { useBuildStore } from "@/store/build-store";
 import type { DefenceStats } from "@/store/build-store";
 import type { TreeData } from "@/components/PassiveTree/tree-types";
 import { CalcClient } from "@/worker/calc-client";
 import { decodeBuildCode, parseBuildXml, parsePoeNinjaUrl, fetchPoeNinjaBuild } from "@/worker/build-decoder";
-import { resolveItemImages, resolveRuneImages, resolveJewelImages } from "@/utils/item-images";
+import { resolveItemImages, resolveRuneImages, resolveJewelImages, resolveGemImages } from "@/utils/item-images";
 import type { NodePowerData } from "@/worker/calc-api";
 
 // Persist/restore lightweight UI state across iOS background kills
@@ -41,7 +42,7 @@ export function App() {
   const [treeData, setTreeData] = useState<TreeData | null>(null);
   const [treeLoading, setTreeLoading] = useState(true);
   const [treeSearch, setTreeSearch] = useState(saved.treeSearch || "");
-  const [sidePanel, setSidePanelRaw] = useState<"import" | "stats" | "skills" | "defence" | "items" | "config">((saved.sidePanel as any) || "import");
+  const [sidePanel, setSidePanelRaw] = useState<"import" | "stats" | "skills" | "gems" | "defence" | "items" | "config">((saved.sidePanel as any) || "import");
   const [menuOpen, setMenuOpenRaw] = useState(saved.menuOpen ?? isDesktop);
   const [pinned, setPinnedRaw] = useState(saved.pinned ?? isDesktop);
 
@@ -142,7 +143,7 @@ export function App() {
     setCalcStatus("calculating");
 
     // Fetch stats, skills, defence, calcDisplay, jewels, weapon set nodes, and items independently
-    const [statsResult, skillsResult, defenceResult, displayResult, displayStatsResult, jewelsResult, wsResult, itemsResult] = await Promise.allSettled([
+    const [statsResult, skillsResult, defenceResult, displayResult, displayStatsResult, jewelsResult, wsResult, itemsResult, gemsResult] = await Promise.allSettled([
       client.getStats(),
       client.getSkills(),
       client.getDefence(),
@@ -151,6 +152,7 @@ export function App() {
       client.getJewels(),
       client.getWeaponSetNodes(),
       client.getItems(),
+      client.getGems(),
     ]);
 
     const stats = statsResult.status === "fulfilled" ? statsResult.value : {} as any;
@@ -160,6 +162,12 @@ export function App() {
     // Update allocated nodes from engine (includes anointed/granted passives)
     if (stats._allocatedNodes) {
       useBuildStore.getState().setAllocatedNodes(stats._allocatedNodes);
+    }
+    if (stats._passivesUsed != null) {
+      useBuildStore.getState().setNodeCounts(
+        stats._passivesUsed, stats._ascendancyUsed ?? 0,
+        stats._weaponSet1 ?? 0, stats._weaponSet2 ?? 0,
+      );
     }
 
     if (statsResult.status === "rejected") console.error("[PoB] getStats failed:", statsResult.reason);
@@ -196,6 +204,11 @@ export function App() {
         useBuildStore.getState().setRuneImageUrls(urls);
       }).catch(() => {});
     } else console.error("[PoB] getItems failed:", itemsResult.reason);
+
+    if (gemsResult.status === "fulfilled") {
+      useBuildStore.getState().setGemsData(gemsResult.value);
+      useBuildStore.getState().setGemImageUrls(resolveGemImages(gemsResult.value));
+    } else console.error("[PoB] getGems failed:", gemsResult.reason);
 
     setStats({
       totalDps: stats.TotalDPS || stats.CombinedDPS || 0,
@@ -357,10 +370,10 @@ export function App() {
             </div>
           </div>
           <div className="flex border-b border-poe-border">
-            {(["import", "stats", "skills", "defence", "items", "config"] as const).map((tab) => (
+            {(["import", "stats", "skills", "gems", "defence", "items", "config"] as const).map((tab) => (
               <button
                 key={tab}
-                className={`flex-1 px-2 py-2.5 text-xs font-medium transition ${
+                className={`flex-1 px-1 py-2.5 text-[11px] font-medium transition ${
                   sidePanel === tab
                     ? "border-b-2 border-poe-accent text-poe-accent"
                     : "text-gray-400 hover:text-gray-200"
@@ -370,8 +383,9 @@ export function App() {
                 {tab === "import" ? "Import" :
                  tab === "stats" ? "Stats" :
                  tab === "skills" ? "Skills" :
-                 tab === "defence" ? "Defence" :
-                 tab === "items" ? "Items" : "Config"}
+                 tab === "gems" ? "Gems" :
+                 tab === "defence" ? "Def" :
+                 tab === "items" ? "Items" : "Cfg"}
               </button>
             ))}
           </div>
@@ -379,6 +393,7 @@ export function App() {
             {sidePanel === "import" ? <ImportPanel /> :
              sidePanel === "stats" ? <StatsPanel /> :
              sidePanel === "skills" ? <SkillsPanel calcClient={calcClientRef.current} /> :
+             sidePanel === "gems" ? <GemsPanel /> :
              sidePanel === "defence" ? <DefencePanel /> :
              sidePanel === "items" ? <InventoryPanel /> :
              <ConfigPanel calcClient={calcClientRef.current} onConfigChange={() => setHeatmapData(null)} />}
@@ -519,15 +534,30 @@ export function App() {
         </header>
 
         {/* Node count overlay */}
-        {build && (
-          <div className="absolute bottom-3 left-3 z-30 rounded bg-poe-panel/80 px-3 py-1.5 text-xs backdrop-blur-sm">
-            <span className="text-gray-400">Allocated: </span>
-            <span className="font-medium text-poe-accent">
-              {useBuildStore.getState().allocatedNodes.size}
-            </span>
-            <span className="text-gray-500"> / {build.nodes.length}</span>
-          </div>
-        )}
+        {build && useBuildStore.getState().passivesUsed > 0 && (() => {
+          const { passivesUsed, ascendancyUsed, weaponSet1Used, weaponSet2Used } = useBuildStore.getState();
+          return (
+            <div className="absolute bottom-3 left-3 z-30 rounded bg-poe-panel/80 px-3 py-1.5 text-xs backdrop-blur-sm">
+              <span className="font-medium text-poe-accent">{passivesUsed}</span>
+              <span className="text-gray-500"> passives</span>
+              {ascendancyUsed > 0 && (
+                <>
+                  <span className="text-gray-600"> / </span>
+                  <span className="font-medium text-poe-accent">{ascendancyUsed}</span>
+                  <span className="text-gray-500"> asc</span>
+                </>
+              )}
+              {(weaponSet1Used > 0 || weaponSet2Used > 0) && (
+                <span className="ml-2 text-gray-600">
+                  (<span style={{ color: "#2a8025" }}>{weaponSet1Used}</span>
+                  <span className="text-gray-600"> / </span>
+                  <span style={{ color: "#2560af" }}>{weaponSet2Used}</span>
+                  <span className="text-gray-500"> ws</span>)
+                </span>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Engine boot log */}
         {engineLogs.length > 0 && engineStatus === "loading" && (
@@ -572,10 +602,10 @@ export function App() {
               </div>
             </div>
             <div className="flex border-b border-poe-border">
-              {(["import", "stats", "skills", "defence", "items", "config"] as const).map((tab) => (
+              {(["import", "stats", "skills", "gems", "defence", "items", "config"] as const).map((tab) => (
                 <button
                   key={tab}
-                  className={`flex-1 px-2 py-2.5 text-xs font-medium transition ${
+                  className={`flex-1 px-1 py-2.5 text-[11px] font-medium transition ${
                     sidePanel === tab
                       ? "border-b-2 border-poe-accent text-poe-accent"
                       : "text-gray-400 hover:text-gray-200"
@@ -585,8 +615,9 @@ export function App() {
                   {tab === "import" ? "Import" :
                    tab === "stats" ? "Stats" :
                    tab === "skills" ? "Skills" :
-                   tab === "defence" ? "Defence" :
-                   tab === "items" ? "Items" : "Config"}
+                   tab === "gems" ? "Gems" :
+                   tab === "defence" ? "Def" :
+                   tab === "items" ? "Items" : "Cfg"}
                 </button>
               ))}
             </div>
@@ -594,6 +625,7 @@ export function App() {
               {sidePanel === "import" ? <ImportPanel /> :
                sidePanel === "stats" ? <StatsPanel /> :
                sidePanel === "skills" ? <SkillsPanel calcClient={calcClientRef.current} /> :
+               sidePanel === "gems" ? <GemsPanel /> :
                sidePanel === "defence" ? <DefencePanel /> :
                sidePanel === "items" ? <InventoryPanel /> :
                <ConfigPanel calcClient={calcClientRef.current} onConfigChange={() => setHeatmapData(null)} />}

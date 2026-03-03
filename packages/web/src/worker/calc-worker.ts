@@ -366,6 +366,16 @@ function pobWebGetStats(jsonArg)
     end
   end
   stats._allocatedNodes = getAllocatedNodeList()
+  if build.spec and build.spec.CountAllocNodes then
+    local ok, u, a, sa, sockets, ws1, ws2 = pcall(build.spec.CountAllocNodes, build.spec)
+    if ok then
+      -- Weapon set passives share the same point budget — subtract one set
+      stats._passivesUsed = u - math.max(ws1 or 0, ws2 or 0)
+      stats._ascendancyUsed = a - (sa or 0)
+      stats._weaponSet1 = ws1 or 0
+      stats._weaponSet2 = ws2 or 0
+    end
+  end
   return dkjson.encode(stats)
 end
 
@@ -1801,6 +1811,68 @@ function pobWebResetConfig(jsonArg)
 
   return dkjson.encode({ success = true })
 end
+
+-- Get detailed gem data for all socket groups
+function pobWebGetGemsData(jsonArg)
+  if not build or not build.skillsTab then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+
+  local result = {}
+  for i, group in ipairs(build.skillsTab.socketGroupList or {}) do
+    local gems = {}
+    for _, gem in ipairs(group.gemList or {}) do
+      local name = (gem.gemData and gem.gemData.name) or gem.nameSpec or gem.name or ""
+      if name ~= "" then
+        local grantedEffect = gem.gemData and gem.gemData.grantedEffect or gem.grantedEffect
+        local isSupport = grantedEffect and grantedEffect.support or false
+        local colorStr = "normal"
+        if grantedEffect and grantedEffect.color == 1 then colorStr = "str"
+        elseif grantedEffect and grantedEffect.color == 2 then colorStr = "dex"
+        elseif grantedEffect and grantedEffect.color == 3 then colorStr = "int"
+        end
+        local desc = grantedEffect and grantedEffect.description or nil
+        local tagStr = gem.gemData and gem.gemData.tagString or nil
+        local castTime = grantedEffect and grantedEffect.castTime or nil
+        local cooldown = grantedEffect and grantedEffect.cooldown or nil
+
+        -- displayEffect.level has effective level after +level mods from gear/passives
+        local effLevel = gem.level or 1
+        local effQuality = gem.quality or 0
+        if gem.displayEffect then
+          effLevel = gem.displayEffect.level or effLevel
+          effQuality = gem.displayEffect.quality or effQuality
+        end
+
+        table.insert(gems, {
+          name = name,
+          level = effLevel,
+          quality = effQuality,
+          enabled = gem.enabled ~= false,
+          isSupport = isSupport,
+          color = colorStr,
+          description = desc,
+          tagString = tagStr,
+          castTime = castTime,
+          cooldown = cooldown,
+          reqLevel = gem.reqLevel or 0,
+          reqStr = gem.reqStr or 0,
+          reqDex = gem.reqDex or 0,
+          reqInt = gem.reqInt or 0,
+        })
+      end
+    end
+    table.insert(result, {
+      index = i,
+      label = group.label or "",
+      enabled = group.enabled ~= false,
+      slot = group.slot or "",
+      gems = gems,
+    })
+  end
+
+  return dkjson.encode(result)
+end
 `;
 
 async function initEngine(): Promise<boolean> {
@@ -2185,6 +2257,27 @@ self.onmessage = async (e: MessageEvent<CalcRequest & { _id?: string }>) => {
         }
       } catch (e) {
         respond(_id, { type: "exportBuild", data: { code: "" }, error: String(e) });
+      }
+      break;
+    }
+
+    case "getGems": {
+      if (!initialized) {
+        respond(_id, { type: "gems", data: [], error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebGetGemsData", "{}");
+        // Emscripten cwrap replaces non-ASCII bytes with '?' — fix known names
+        const cleaned = result.replace(/Ois\?\?n/g, "Oisin").replace(/\?\?/g, "");
+        const data = JSON.parse(cleaned);
+        if (data.error) {
+          respond(_id, { type: "gems", data: [], error: data.error });
+        } else {
+          respond(_id, { type: "gems", data });
+        }
+      } catch (e) {
+        respond(_id, { type: "gems", data: [], error: String(e) });
       }
       break;
     }

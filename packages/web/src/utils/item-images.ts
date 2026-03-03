@@ -5,7 +5,7 @@
  * Some base items share icons with other items (e.g. "Warlord Cuirass" uses
  * the "Chieftain Cuirass" icon). The icon map handles these redirects.
  */
-import type { EquippedItem, JewelInfo } from "@/worker/calc-api";
+import type { EquippedItem, JewelInfo, GemsData } from "@/worker/calc-api";
 import iconMap from "./item-icon-map.json";
 
 const WIKI_API = "https://www.poe2wiki.net/w/api.php";
@@ -251,5 +251,28 @@ export async function resolveJewelImages(
     if (url) result[jewel.name] = url;
   }
 
+  return result;
+}
+
+/**
+ * Resolve gem icons using a static map scraped from poe2db.tw.
+ * Icons are stored locally in public/images/gems/.
+ * Regenerate with: node packages/web/scripts/scrape-gem-icons.mjs
+ */
+import gemIconMap from "./gem-icon-map.json";
+
+const gemIcons = gemIconMap as Record<string, string>;
+
+export function resolveGemImages(
+  gems: GemsData,
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const group of gems) {
+    for (const gem of group.gems) {
+      if (!gem.name || result[gem.name]) continue;
+      const filename = gemIcons[gem.name];
+      if (filename) result[gem.name] = `/images/gems/${filename}`;
+    }
+  }
   return result;
 }

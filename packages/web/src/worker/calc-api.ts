@@ -22,6 +22,7 @@ export type CalcRequest =
   | { type: "getConfigOptions" }
   | { type: "setConfig"; var: string; value: boolean | number | string | null }
   | { type: "resetConfig" }
+  | { type: "getGems" }
   | { type: "exec"; code: string };
 
 /** Per-skill DPS entry from PoB's calcFullDPS (output.SkillDPS) */
@@ -217,6 +218,36 @@ export interface ConfigData {
   sections: ConfigSection[];
 }
 
+/** A single gem instance in a socket group */
+export interface GemInfo {
+  name: string;
+  level: number;
+  quality: number;
+  enabled: boolean;
+  isSupport: boolean;
+  color: "str" | "dex" | "int" | "normal";
+  description?: string;
+  tagString?: string;
+  castTime?: number;
+  cooldown?: number;
+  reqLevel?: number;
+  reqStr?: number;
+  reqDex?: number;
+  reqInt?: number;
+}
+
+/** A socket group with its gems */
+export interface SocketGroupGems {
+  index: number;
+  label: string;
+  enabled: boolean;
+  slot: string;
+  gems: GemInfo[];
+}
+
+/** All socket groups with gem details */
+export type GemsData = SocketGroupGems[];
+
 /** Response from allocNode / deallocNode */
 export interface AllocResult {
   success: boolean;
@@ -244,6 +275,7 @@ export type CalcResponse =
   | { type: "configOptions"; data: ConfigData; error?: string }
   | { type: "setConfig"; data: { success: boolean }; error?: string }
   | { type: "resetConfig"; data: { success: boolean }; error?: string }
+  | { type: "gems"; data: GemsData; error?: string }
   | { type: "error"; message: string }
   | { type: "log"; message: string }
   | { type: "exec"; result?: string; error?: string };

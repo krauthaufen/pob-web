@@ -572,7 +572,6 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       nodeLayer.label = "__node_layer";
 
       for (const [id, node] of nodes) {
-        if (node.type === "ascendancyStart") continue;
         if (node.ascendancy && node.ascendancy !== activeAsc) continue;
 
         const isAllocated = currentAllocated.has(node.hash);
@@ -791,7 +790,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
     const atlases = atlasesRef.current;
     for (const [id, container] of nodeGfxRef.current) {
       const node = nodes.get(id);
-      if (!node || node.type === "ascendancyStart") continue;
+      if (!node) continue;
       if (node.ascendancy && node.ascendancy !== activeAsc) continue;
       // Hide nodes with unsatisfied unlock constraints
       container.visible = isUnlocked(node);

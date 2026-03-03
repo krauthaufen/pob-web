@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { PobBuild } from "../worker/build-decoder";
-import type { SkillsData, CalcSection, JewelInfo, EquippedItem, DisplayStatGroup } from "../worker/calc-api";
+import type { SkillsData, CalcSection, JewelInfo, EquippedItem, DisplayStatGroup, GemsData } from "../worker/calc-api";
 
 export interface CalcStats {
   // Offence
@@ -86,6 +86,14 @@ interface BuildState {
   itemImageUrls: Record<string, string>;
   runeImageUrls: Record<string, string>;
   jewelImageUrls: Record<string, string>;
+  gemsData: GemsData | null;
+  gemImageUrls: Record<string, string>;
+
+  // Node counts (from PoB's CountAllocNodes)
+  passivesUsed: number;
+  ascendancyUsed: number;
+  weaponSet1Used: number;
+  weaponSet2Used: number;
 
   // Skills
   selectedSkillGroup: number;
@@ -112,6 +120,9 @@ interface BuildState {
   setItemImageUrls: (urls: Record<string, string>) => void;
   setRuneImageUrls: (urls: Record<string, string>) => void;
   setJewelImageUrls: (urls: Record<string, string>) => void;
+  setGemsData: (data: GemsData) => void;
+  setGemImageUrls: (urls: Record<string, string>) => void;
+  setNodeCounts: (passives: number, ascendancy: number, ws1: number, ws2: number) => void;
   setSelectedSkillGroup: (group: number) => void;
   toggleNode: (nodeId: number) => void;
   setAllocatedNodes: (nodes: number[]) => void;
@@ -146,6 +157,12 @@ export const useBuildStore = create<BuildState>((set) => ({
   itemImageUrls: {},
   runeImageUrls: {},
   jewelImageUrls: {},
+  gemsData: null,
+  gemImageUrls: {},
+  passivesUsed: 0,
+  ascendancyUsed: 0,
+  weaponSet1Used: 0,
+  weaponSet2Used: 0,
   selectedSkillGroup: 1,
   allocatedNodes: new Set(),
   hoveredNode: null,
@@ -181,6 +198,9 @@ export const useBuildStore = create<BuildState>((set) => ({
   setItemImageUrls: (itemImageUrls) => set({ itemImageUrls }),
   setRuneImageUrls: (runeImageUrls) => set({ runeImageUrls }),
   setJewelImageUrls: (jewelImageUrls) => set({ jewelImageUrls }),
+  setGemsData: (gemsData) => set({ gemsData }),
+  setGemImageUrls: (gemImageUrls) => set({ gemImageUrls }),
+  setNodeCounts: (passivesUsed, ascendancyUsed, weaponSet1Used, weaponSet2Used) => set({ passivesUsed, ascendancyUsed, weaponSet1Used, weaponSet2Used }),
   setSelectedSkillGroup: (selectedSkillGroup) => set({ selectedSkillGroup }),
 
   toggleNode: (nodeId) =>
@@ -216,6 +236,12 @@ export const useBuildStore = create<BuildState>((set) => ({
       itemImageUrls: {},
       runeImageUrls: {},
       jewelImageUrls: {},
+      gemsData: null,
+      gemImageUrls: {},
+      passivesUsed: 0,
+      ascendancyUsed: 0,
+      weaponSet1Used: 0,
+      weaponSet2Used: 0,
       selectedSkillGroup: 1,
       allocatedNodes: new Set(),
       hoveredNode: null,
