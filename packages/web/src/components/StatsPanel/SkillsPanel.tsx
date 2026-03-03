@@ -17,6 +17,22 @@ function formatValue(value: number, decimals: number): string {
   return String(Math.round(value));
 }
 
+const DMG_COLORS: Record<string, string> = {
+  Physical: "#c8c8c8",
+  Fire: "#b97123",
+  Cold: "#3f6db3",
+  Lightning: "#adaa47",
+  Chaos: "#d02090",
+};
+
+const DMG_BAR_COLORS: Record<string, string> = {
+  Physical: "#9a9a9a",
+  Fire: "#e07020",
+  Cold: "#4488dd",
+  Lightning: "#d4d040",
+  Chaos: "#d040a0",
+};
+
 function CalcRow({ row }: { row: CalcStatRow }) {
   const primary = row.values[0];
   if (!primary) return null;
@@ -161,6 +177,56 @@ export function SkillsPanel({ calcClient }: SkillsPanelProps) {
           </span>
         </div>
       )}
+
+      {/* Damage type breakdown */}
+      {mainStats && mainStats.damageTypes && Object.keys(mainStats.damageTypes).length > 0 && (() => {
+        const types = mainStats.damageTypes;
+        const totalAvg = Object.values(types).reduce((s, t) => s + t.average, 0);
+        const speed = mainStats.Speed || mainStats.CastSpeed || 1;
+        const hitDps = mainStats.CombinedDPS || mainStats.TotalDPS || 0;
+        // Order: Physical, Fire, Cold, Lightning, Chaos
+        const order = ["Physical", "Fire", "Cold", "Lightning", "Chaos"] as const;
+        const active = order.filter((dt) => types[dt] && types[dt]!.average > 0);
+        if (active.length === 0) return null;
+        return (
+          <div>
+            <h3 className="mb-1 border-b border-poe-border pb-1 text-xs font-semibold uppercase tracking-wider text-gray-300">
+              Damage Breakdown
+            </h3>
+            {/* Proportional bar */}
+            <div className="mb-2 flex h-2.5 overflow-hidden rounded-sm">
+              {active.map((dt) => {
+                const pct = totalAvg > 0 ? (types[dt]!.average / totalAvg) * 100 : 0;
+                return (
+                  <div
+                    key={dt}
+                    style={{ width: `${pct}%`, background: DMG_BAR_COLORS[dt], minWidth: pct > 0 ? 2 : 0 }}
+                  />
+                );
+              })}
+            </div>
+            {/* Per-type rows */}
+            {active.map((dt) => {
+              const t = types[dt]!;
+              const pct = totalAvg > 0 ? (t.average / totalAvg) * 100 : 0;
+              const dps = hitDps > 0 && totalAvg > 0 ? hitDps * (t.average / totalAvg) : t.average * speed;
+              return (
+                <div key={dt} className="flex items-center justify-between py-0.5 text-xs">
+                  <span className="flex items-center gap-1.5">
+                    <span className="inline-block h-2 w-2 rounded-sm" style={{ background: DMG_BAR_COLORS[dt] }} />
+                    <span style={{ color: DMG_COLORS[dt] }}>{dt}</span>
+                    <span className="text-[10px] text-gray-600">({pct.toFixed(0)}%)</span>
+                  </span>
+                  <span className="text-gray-300">
+                    <span className="text-gray-500">{formatNum(t.min)}-{formatNum(t.max)}</span>
+                    <span className="ml-2">{formatNum(dps)} dps</span>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* Combined Full DPS */}
       {fullDps > 0 && (
