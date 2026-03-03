@@ -119,6 +119,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
   const setHoveredNode = useBuildStore((s) => s.setHoveredNode);
   const setCalcDisplay = useBuildStore((s) => s.setCalcDisplay);
   const setDisplayStats = useBuildStore((s) => s.setDisplayStats);
+  const setSkillsData = useBuildStore((s) => s.setSkillsData);
   const setImportCode = useBuildStore((s) => s.setImportCode);
   const jewelData = useBuildStore((s) => s.jewelData);
   const weaponSetNodes = useBuildStore((s) => s.weaponSetNodes);
@@ -1053,6 +1054,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
         setAllocatedNodes(result.allocatedNodes);
         if (result.display) setCalcDisplay(result.display);
         calcClient.getDisplayStats().then(setDisplayStats).catch(() => {});
+        calcClient.getSkills().then(setSkillsData).catch(() => {});
         calcClient.exportBuild().then((xml) => { if (xml) setImportCode(encodeBuildCode(xml)); }).catch(() => {});
       }
     } catch (e) {
@@ -1063,7 +1065,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       setSelectedNode(null);
       setNodeImpact(null);
     }
-  }, [selectedNode, calcClient, allocating, setAllocatedNodes, setCalcDisplay, setDisplayStats, setImportCode]);
+  }, [selectedNode, calcClient, allocating, setAllocatedNodes, setCalcDisplay, setDisplayStats, setSkillsData, setImportCode]);
 
   const handleDeallocate = useCallback(async () => {
     if (!selectedNode || !calcClient || allocating) return;
@@ -1074,6 +1076,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
         setAllocatedNodes(result.allocatedNodes);
         if (result.display) setCalcDisplay(result.display);
         calcClient.getDisplayStats().then(setDisplayStats).catch(() => {});
+        calcClient.getSkills().then(setSkillsData).catch(() => {});
         calcClient.exportBuild().then((xml) => { if (xml) setImportCode(encodeBuildCode(xml)); }).catch(() => {});
       }
     } catch (e) {
@@ -1084,7 +1087,7 @@ export function PassiveTree({ treeData, heatmapData, searchQuery, calcClient }: 
       setSelectedNode(null);
       setNodeImpact(null);
     }
-  }, [selectedNode, calcClient, allocating, setAllocatedNodes, setCalcDisplay, setDisplayStats, setImportCode]);
+  }, [selectedNode, calcClient, allocating, setAllocatedNodes, setCalcDisplay, setDisplayStats, setSkillsData, setImportCode]);
 
   return (
     <div className="relative h-full w-full">

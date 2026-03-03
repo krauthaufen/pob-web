@@ -408,6 +408,7 @@ export function GemsPanel({ calcClient }: { calcClient?: CalcClient | null }) {
       store.setGemsData(result.gems);
       store.setSkillsData(result.skills);
       store.setDisplayStats(result.displayStats);
+      calcClient.getCalcDisplay().then(d => store.setCalcDisplay(d)).catch(() => {});
     } catch (e) {
       console.error("[PoB] Toggle gem failed:", e);
     }
@@ -423,6 +424,7 @@ export function GemsPanel({ calcClient }: { calcClient?: CalcClient | null }) {
       store.setGemImageUrls(resolveGemImages(result.gems));
       store.setSkillsData(result.skills);
       store.setDisplayStats(result.displayStats);
+      calcClient.getCalcDisplay().then(d => store.setCalcDisplay(d)).catch(() => {});
       setShowPicker(false);
       setSelected(null);
     } catch (e) {
@@ -442,6 +444,7 @@ export function GemsPanel({ calcClient }: { calcClient?: CalcClient | null }) {
       store.setGemImageUrls(resolveGemImages(result.gems));
       store.setSkillsData(result.skills);
       store.setDisplayStats(result.displayStats);
+      calcClient.getCalcDisplay().then(d => store.setCalcDisplay(d)).catch(() => {});
       setSelected(null);
     } catch (e) {
       console.error("removeGem failed:", e);

@@ -9,7 +9,7 @@ interface ConfigPanelProps {
 }
 
 export function ConfigPanel({ calcClient, onConfigChange }: ConfigPanelProps) {
-  const { build, calcStatus, setCalcDisplay, setDisplayStats } = useBuildStore();
+  const { build, calcStatus, setCalcDisplay, setDisplayStats, setSkillsData } = useBuildStore();
   const [configData, setConfigData] = useState<ConfigData | null>(null);
   const [searchText, setSearchText] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -41,42 +41,46 @@ export function ConfigPanel({ calcClient, onConfigChange }: ConfigPanelProps) {
     try {
       const result = await calcClient.setConfig(varName, value);
       if (result.success) {
-        const [newConfig, display, displayStats] = await Promise.all([
+        const [newConfig, display, displayStats, skills] = await Promise.all([
           calcClient.getConfigOptions(),
           calcClient.getCalcDisplay(),
           calcClient.getDisplayStats(),
+          calcClient.getSkills(),
         ]);
         setConfigData(newConfig);
         setCalcDisplay(display);
         setDisplayStats(displayStats);
+        setSkillsData(skills);
         persistConfig(newConfig);
         onConfigChange?.();
       }
     } catch (e) {
       console.error("[Config] setConfig failed:", e);
     }
-  }, [calcClient, setCalcDisplay, setDisplayStats, onConfigChange, persistConfig]);
+  }, [calcClient, setCalcDisplay, setDisplayStats, setSkillsData, onConfigChange, persistConfig]);
 
   const handleReset = useCallback(async () => {
     if (!calcClient) return;
     try {
       const result = await calcClient.resetConfig();
       if (result.success) {
-        const [newConfig, display, displayStats] = await Promise.all([
+        const [newConfig, display, displayStats, skills] = await Promise.all([
           calcClient.getConfigOptions(),
           calcClient.getCalcDisplay(),
           calcClient.getDisplayStats(),
+          calcClient.getSkills(),
         ]);
         setConfigData(newConfig);
         setCalcDisplay(display);
         setDisplayStats(displayStats);
+        setSkillsData(skills);
         try { localStorage.removeItem("pob-config"); } catch {}
         onConfigChange?.();
       }
     } catch (e) {
       console.error("[Config] resetConfig failed:", e);
     }
-  }, [calcClient, setCalcDisplay, setDisplayStats, onConfigChange]);
+  }, [calcClient, setCalcDisplay, setDisplayStats, setSkillsData, onConfigChange]);
 
   const toggleSection = useCallback((name: string) => {
     setCollapsed(prev => {
