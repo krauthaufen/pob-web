@@ -146,8 +146,8 @@ export function decodeBuildCode(code: string): string {
   }
 
   // Inflate (decompress)
-  const xml = pako.inflate(bytes, { to: "string" });
-  return xml;
+  const inflated = pako.inflate(bytes);
+  return new TextDecoder().decode(inflated);
 }
 
 export function encodeBuildCode(xml: string): string {
