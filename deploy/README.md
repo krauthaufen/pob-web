@@ -5,21 +5,18 @@ PoB Web is a static SPA served by nginx, with a haste-server backend for build s
 ## Architecture
 
 ```
-Internet → Traefik (TLS) → nginx ─┬→ static files (SPA)
-                                   ├→ /api/documents  → haste-server (POST, restricted)
-                                   ├→ /api/raw/:key   → haste-server (GET, public)
-                                   └→ /poe-ninja-api/ → poe.ninja (CORS proxy)
+Internet → nginx (port 80) ─┬→ static files (SPA)
+                             ├→ /api/documents  → haste-server (POST, restricted)
+                             ├→ /api/raw/:key   → haste-server (GET, public)
+                             └→ /poe-ninja-api/ → poe.ninja (CORS proxy)
 ```
 
 - **nginx** serves the built SPA and proxies API requests
 - **haste-server** (`rlister/hastebin`) stores shared build codes with file-based storage
-- **Traefik** (external) handles TLS termination and routing
 
 ## Prerequisites
 
 - Docker and Docker Compose on the server
-- A Traefik reverse proxy with an external `web` network and `https-redirect` middleware
-- SSH access to the deploy target (default: `tatooine`)
 - Node.js for building the frontend
 
 ## Server Setup
@@ -27,40 +24,53 @@ Internet → Traefik (TLS) → nginx ─┬→ static files (SPA)
 1. Create the deploy directory on the server:
 
 ```bash
-ssh tatooine "mkdir -p /home/schorsch/docker/pob/dist"
+mkdir -p /path/to/pob/dist
 ```
 
 2. Copy the deploy configs:
 
 ```bash
-rsync -az deploy/docker-compose.yml deploy/nginx.conf tatooine:/home/schorsch/docker/pob/
+cp deploy/docker-compose.yml deploy/nginx.conf /path/to/pob/
 ```
 
-3. Start the containers:
+3. Edit `docker-compose.yml`:
+   - Update the Traefik labels or remove them and expose port 80 directly:
+     ```yaml
+     ports:
+       - "80:80"
+     ```
+   - If not using Traefik, remove the `web` external network and put `pob` on `internal` only (or your own network)
+
+4. Edit `nginx.conf`:
+   - Update the Origin check domains in the `/api/documents` location to match your domain
+
+5. Start the containers:
 
 ```bash
-ssh tatooine "cd /home/schorsch/docker/pob && docker compose up -d"
+cd /path/to/pob && docker compose up -d
 ```
 
 This starts two containers:
 - `pob` — nginx serving the SPA + proxying API requests
 - `pob-haste` — haste-server on an internal-only network (no external access)
 
-## Deploying
+## Building & Deploying
 
-Run the deploy script from the repo root:
+Build the frontend:
 
 ```bash
-./deploy.sh
+cd packages/web && npx vite build
 ```
 
-This will:
-1. Build the Vite SPA (`packages/web`)
-2. Rsync the built files to the server
-3. Sync `docker-compose.yml` and `nginx.conf`
-4. Restart containers
+Copy the output to the server:
 
-Override the target host:
+```bash
+rsync -az --delete packages/web/dist/ server:/path/to/pob/dist/
+rsync -az deploy/docker-compose.yml deploy/nginx.conf server:/path/to/pob/
+ssh server "cd /path/to/pob && docker compose up -d"
+```
+
+Or use the included deploy script (configure `DEPLOY_HOST` and paths as needed):
 
 ```bash
 DEPLOY_HOST=myserver ./deploy.sh
@@ -72,7 +82,6 @@ DEPLOY_HOST=myserver ./deploy.sh
 
 Update these places when changing domains:
 
-- `deploy/docker-compose.yml` — Traefik router rules (`Host(...)`)
 - `deploy/nginx.conf` — Origin check in `/api/documents` location
 - `packages/web/vite.config.ts` — `allowedHosts` for dev server
 
@@ -101,6 +110,5 @@ The Vite dev server proxies `/api` to `localhost:7777` automatically.
 Build pastes are stored in the `haste-data` Docker volume. Back up with:
 
 ```bash
-ssh tatooine "docker run --rm -v pob_haste-data:/data -v /tmp:/backup alpine tar czf /backup/haste-backup.tar.gz -C /data ."
-scp tatooine:/tmp/haste-backup.tar.gz .
+docker run --rm -v pob_haste-data:/data -v /tmp:/backup alpine tar czf /backup/haste-backup.tar.gz -C /data .
 ```
