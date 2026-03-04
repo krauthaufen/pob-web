@@ -2,7 +2,7 @@
  * Client-side wrapper for the PoB calculation Web Worker.
  * Provides a promise-based API for sending commands and receiving results.
  */
-import type { CalcRequest, CalcResponse, SkillsData, SwitchSkillResult, NodeImpact, AllocResult, CalcSection, JewelInfo, EquippedItem, DisplayStatGroup, NodePowerData, ConfigData, GemsData, AvailableGem, SlotItemEntry } from "./calc-api";
+import type { CalcRequest, CalcResponse, SkillsData, SwitchSkillResult, NodeImpact, ImpactDelta, AllocResult, CalcSection, JewelInfo, EquippedItem, DisplayStatGroup, NodePowerData, ConfigData, GemsData, AvailableGem, SlotItemEntry } from "./calc-api";
 
 export class CalcClient {
   private worker: Worker;
@@ -191,6 +191,12 @@ export class CalcClient {
     const res = await this.send({ type: "switchSkillPart", partIndex });
     if (res.type === "switchSkillPart") return res.data;
     return { stats: {} as any, fullDps: 0, skills: [] };
+  }
+
+  async calcItemImpact(itemId: number, slotName: string): Promise<{ deltas: Record<string, ImpactDelta> }> {
+    const res = await this.send({ type: "calcItemImpact", itemId, slotName });
+    if (res.type === "itemImpact") return res.data;
+    return { deltas: {} };
   }
 
   async addCustomItem(rawText: string): Promise<{ success: boolean; error?: string; itemId?: number; primarySlot?: string }> {

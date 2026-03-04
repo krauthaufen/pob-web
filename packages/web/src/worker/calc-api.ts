@@ -28,6 +28,7 @@ export type CalcRequest =
   | { type: "toggleGem"; groupIndex: number; gemIndex: number; enabled: boolean }
   | { type: "calcSupportDps"; groupIndex: number; gemIndex: number; candidates: { id: string }[] }
   | { type: "switchSkillPart"; partIndex: number }
+  | { type: "calcItemImpact"; itemId: number; slotName: string }
   | { type: "addCustomItem"; rawText: string }
   | { type: "getSlotItems"; slotName: string }
   | { type: "equipItem"; itemId: number; slotName: string }
@@ -327,6 +328,7 @@ export type CalcResponse =
   | { type: "toggleGem"; data: { gems: GemsData; skills: SkillsData; displayStats: DisplayStatGroup[] }; error?: string }
   | { type: "calcSupportDps"; data: { baseDps: number; results: { id: string; dps: number }[] }; error?: string }
   | { type: "switchSkillPart"; data: SwitchSkillResult; error?: string }
+  | { type: "itemImpact"; data: { deltas: Record<string, ImpactDelta> }; error?: string }
   | { type: "addCustomItem"; data: { success: boolean; error?: string; itemId?: number; primarySlot?: string }; error?: string }
   | { type: "slotItems"; data: SlotItemEntry[]; error?: string }
   | { type: "equipItem"; data: { items: EquippedItem[] }; error?: string }

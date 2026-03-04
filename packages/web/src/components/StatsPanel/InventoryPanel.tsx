@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useBuildStore } from "@/store/build-store";
-import type { EquippedItem, ModLine, JewelInfo, SlotItemEntry } from "@/worker/calc-api";
+import type { EquippedItem, ModLine, JewelInfo, SlotItemEntry, ImpactDelta } from "@/worker/calc-api";
 import type { CalcClient } from "@/worker/calc-client";
 import { refreshAll } from "@/utils/refresh-all";
 import { isTouchDevice } from "@/utils/is-touch";
@@ -36,6 +36,39 @@ const MOD_COLORS = {
 
 function rarityColor(rarity: string): string {
   return RARITY_COLOR[rarity] ?? "#c8c8c8";
+}
+
+// Format a numeric delta for display: +12.3k, -50, +3.2%
+function formatDelta(value: number, label: string): string {
+  const pct = label.includes("%") || label.includes("Chance") || label.includes("Resistance") || label.includes("Rate");
+  const abs = Math.abs(value);
+  const sign = value > 0 ? "+" : "";
+  if (pct) return `${sign}${value.toFixed(1)}%`;
+  if (abs >= 1000000) return `${sign}${(value / 1000000).toFixed(1)}M`;
+  if (abs >= 1000) return `${sign}${(value / 1000).toFixed(1)}k`;
+  if (abs % 1 !== 0) return `${sign}${value.toFixed(1)}`;
+  return `${sign}${Math.round(value)}`;
+}
+
+// Render top N impact deltas inline
+function ImpactDeltas({ deltas }: { deltas: Record<string, ImpactDelta> }) {
+  const entries = Object.values(deltas)
+    .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
+    .slice(0, 4);
+  if (entries.length === 0) return null;
+  return (
+    <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0">
+      {entries.map((d) => (
+        <span
+          key={d.label}
+          className="text-[10px]"
+          style={{ color: d.value > 0 ? "#4c4" : "#c44" }}
+        >
+          {formatDelta(d.value, d.label)} {d.label}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 // --- Grid slot definitions ---
@@ -423,6 +456,7 @@ function ItemDetail({
   slotName,
   slotItems,
   loadingSlotItems,
+  itemImpacts,
   onClose,
   onEquip,
 }: {
@@ -430,6 +464,7 @@ function ItemDetail({
   slotName: string;
   slotItems: SlotItemEntry[];
   loadingSlotItems: boolean;
+  itemImpacts: Record<number, Record<string, ImpactDelta>>;
   onClose: () => void;
   onEquip: (itemId: number) => void;
 }) {
@@ -460,24 +495,30 @@ function ItemDetail({
               <p className="text-[11px] text-gray-600">Loading...</p>
             ) : (
               <div className="flex flex-col gap-1">
-                {slotItems.filter(si => !si.isEquipped).map((si) => (
-                  <button
-                    key={si.itemId}
-                    className="flex items-center gap-2 rounded px-2 py-1.5 text-left transition hover:bg-gray-800"
-                    style={{ border: "1px solid #1a1f25" }}
-                    onClick={() => onEquip(si.itemId)}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[11px] font-medium" style={{ color: rarityColor(si.rarity) }}>
-                        {si.name || si.baseName}
-                      </p>
-                      {si.name && si.baseName && si.name !== si.baseName && (
-                        <p className="truncate text-[10px] text-gray-500">{si.baseName}</p>
-                      )}
-                    </div>
-                    <span className="shrink-0 text-[9px] text-gray-600">{si.itemType}</span>
-                  </button>
-                ))}
+                {slotItems.filter(si => !si.isEquipped).map((si) => {
+                  const deltas = itemImpacts[si.itemId];
+                  return (
+                    <button
+                      key={si.itemId}
+                      className="rounded px-2 py-1.5 text-left transition hover:bg-gray-800"
+                      style={{ border: "1px solid #1a1f25" }}
+                      onClick={() => onEquip(si.itemId)}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[11px] font-medium" style={{ color: rarityColor(si.rarity) }}>
+                            {si.name || si.baseName}
+                          </p>
+                          {si.name && si.baseName && si.name !== si.baseName && (
+                            <p className="truncate text-[10px] text-gray-500">{si.baseName}</p>
+                          )}
+                        </div>
+                        <span className="shrink-0 text-[9px] text-gray-600">{si.itemType}</span>
+                      </div>
+                      {deltas && <ImpactDeltas deltas={deltas} />}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -696,7 +737,9 @@ export function InventoryPanel({ calcClient }: { calcClient?: CalcClient | null 
   const [pasteError, setPasteError] = useState<string | null>(null);
   const [slotItems, setSlotItems] = useState<SlotItemEntry[]>([]);
   const [loadingSlotItems, setLoadingSlotItems] = useState(false);
+  const [itemImpacts, setItemImpacts] = useState<Record<number, Record<string, ImpactDelta>>>({});
   const panelRef = useRef<HTMLDivElement>(null);
+  const impactAbortRef = useRef(0);
 
   const handleAddItem = useCallback(async (rawText: string) => {
     if (!calcClient) return;
@@ -717,14 +760,28 @@ export function InventoryPanel({ calcClient }: { calcClient?: CalcClient | null 
   const handleSelectSlot = useCallback(async (slotName: string) => {
     setSelectedSlot(slotName);
     setSlotItems([]);
+    setItemImpacts({});
+    const batchId = ++impactAbortRef.current;
     if (!calcClient) return;
     setLoadingSlotItems(true);
     try {
       const items = await calcClient.getSlotItems(slotName);
+      if (impactAbortRef.current !== batchId) return;
       setSlotItems(items);
+      setLoadingSlotItems(false);
+      // Calculate impacts sequentially for non-equipped items
+      for (const si of items) {
+        if (si.isEquipped) continue;
+        if (impactAbortRef.current !== batchId) return;
+        try {
+          const impact = await calcClient.calcItemImpact(si.itemId, slotName);
+          if (impactAbortRef.current !== batchId) return;
+          setItemImpacts(prev => ({ ...prev, [si.itemId]: impact.deltas }));
+        } catch {
+          // skip this item's impact
+        }
+      }
     } catch {
-      // ignore
-    } finally {
       setLoadingSlotItems(false);
     }
   }, [calcClient]);
@@ -912,6 +969,7 @@ export function InventoryPanel({ calcClient }: { calcClient?: CalcClient | null 
             slotName={selectedSlot}
             slotItems={slotItems}
             loadingSlotItems={loadingSlotItems}
+            itemImpacts={itemImpacts}
             onClose={() => setSelectedSlot(null)}
             onEquip={handleEquipItem}
           />
@@ -934,24 +992,30 @@ export function InventoryPanel({ calcClient }: { calcClient?: CalcClient | null 
                 <p className="text-[11px] text-gray-600">Loading...</p>
               ) : (
                 <div className="flex flex-col gap-1">
-                  {slotItems.map((si) => (
-                    <button
-                      key={si.itemId}
-                      className="flex items-center gap-2 rounded px-2 py-1.5 text-left transition hover:bg-gray-800"
-                      style={{ border: "1px solid #1a1f25" }}
-                      onClick={() => handleEquipItem(si.itemId)}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[11px] font-medium" style={{ color: rarityColor(si.rarity) }}>
-                          {si.name || si.baseName}
-                        </p>
-                        {si.name && si.baseName && si.name !== si.baseName && (
-                          <p className="truncate text-[10px] text-gray-500">{si.baseName}</p>
-                        )}
-                      </div>
-                      <span className="shrink-0 text-[9px] text-gray-600">{si.itemType}</span>
-                    </button>
-                  ))}
+                  {slotItems.map((si) => {
+                    const deltas = itemImpacts[si.itemId];
+                    return (
+                      <button
+                        key={si.itemId}
+                        className="rounded px-2 py-1.5 text-left transition hover:bg-gray-800"
+                        style={{ border: "1px solid #1a1f25" }}
+                        onClick={() => handleEquipItem(si.itemId)}
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[11px] font-medium" style={{ color: rarityColor(si.rarity) }}>
+                              {si.name || si.baseName}
+                            </p>
+                            {si.name && si.baseName && si.name !== si.baseName && (
+                              <p className="truncate text-[10px] text-gray-500">{si.baseName}</p>
+                            )}
+                          </div>
+                          <span className="shrink-0 text-[9px] text-gray-600">{si.itemType}</span>
+                        </div>
+                        {deltas && <ImpactDeltas deltas={deltas} />}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>

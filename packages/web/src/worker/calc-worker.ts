@@ -1011,6 +1011,58 @@ function pobWebCalcNodeImpact(jsonArg)
   return dkjson.encode({ deltas = deltas, pathCount = pathCount, pathNodes = pathNodes })
 end
 
+-- Calculate stat impact of equipping an item in a slot
+function pobWebCalcItemImpact(jsonArg)
+  if not build or not build.calcsTab or not build.itemsTab then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+  local args = dkjson.decode(jsonArg)
+  if not args or not args.itemId or not args.slotName then
+    return dkjson.encode({ error = "missing itemId or slotName" })
+  end
+
+  local item = build.itemsTab.items[args.itemId]
+  if not item then
+    return dkjson.encode({ error = "item not found: " .. tostring(args.itemId) })
+  end
+
+  -- Ensure calculator is initialized
+  if not build.calcsTab.miscCalculator then
+    local initOk, res = pcall(function()
+      build.calcsTab.miscCalculator = { build.calcsTab.calcs.getMiscCalculator(build) }
+    end)
+    if not initOk then
+      return dkjson.encode({ error = "getMiscCalculator init failed: " .. tostring(res) })
+    end
+  end
+  local miscOk, calcFunc, calcBase = pcall(build.calcsTab.GetMiscCalculator, build.calcsTab)
+  if not miscOk then
+    return dkjson.encode({ error = "GetMiscCalculator failed: " .. tostring(calcFunc) })
+  end
+
+  -- Calculate with this item replacing current slot occupant
+  local calcOk, output = pcall(calcFunc, { repSlotName = args.slotName, repItem = item }, true)
+  if not calcOk then
+    return dkjson.encode({ error = "calc failed: " .. tostring(output) })
+  end
+
+  -- Compare using powerStatList (same as node impact)
+  local d = getDataRef()
+  local deltas = {}
+  if d and d.powerStatList then
+    for _, entry in ipairs(d.powerStatList) do
+      if entry.stat and not entry.ignoreForItems then
+        local ok, delta = pcall(build.calcsTab.CalculatePowerStat, build.calcsTab, entry, output, calcBase)
+        if ok and type(delta) == "number" and math.abs(delta) > 0.01 then
+          deltas[entry.stat] = { value = delta, label = entry.label }
+        end
+      end
+    end
+  end
+
+  return dkjson.encode({ deltas = deltas })
+end
+
 -- Node power state for batched calculation
 local nodePowerState = nil
 
@@ -3075,6 +3127,29 @@ self.onmessage = async (e: MessageEvent<CalcRequest & { _id?: string }>) => {
         }
       } catch (e) {
         respond(_id, { type: "switchSkillPart", data: { stats: {} as any, fullDps: 0, skills: [] }, error: String(e) });
+      }
+      break;
+    }
+
+    case "calcItemImpact": {
+      const emptyImpact = { deltas: {} };
+      if (!initialized) {
+        respond(_id, { type: "itemImpact", data: emptyImpact, error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebCalcItemImpact", JSON.stringify({
+          itemId: msg.itemId,
+          slotName: msg.slotName,
+        }));
+        const data = JSON.parse(result);
+        if (data.error) {
+          respond(_id, { type: "itemImpact", data: emptyImpact, error: data.error });
+        } else {
+          respond(_id, { type: "itemImpact", data });
+        }
+      } catch (e) {
+        respond(_id, { type: "itemImpact", data: emptyImpact, error: String(e) });
       }
       break;
     }
