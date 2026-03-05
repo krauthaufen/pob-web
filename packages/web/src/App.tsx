@@ -598,6 +598,11 @@ export function App() {
           </div>
         )}
 
+        {/* GGG disclaimer */}
+        <div className="absolute bottom-3 right-3 z-30 max-w-xs rounded bg-poe-panel/70 px-2 py-1 text-[10px] leading-tight text-gray-600 backdrop-blur-sm">
+          This product isn't affiliated with or endorsed by Grinding Gear Games in any way.
+        </div>
+
         {/* Engine boot log */}
         {engineLogs.length > 0 && engineStatus === "loading" && (
           <div className="absolute bottom-3 right-3 z-30 max-h-48 w-80 overflow-y-auto rounded bg-poe-panel/90 p-2 text-xs font-mono text-gray-400 backdrop-blur-sm">
