@@ -10,6 +10,34 @@
  */
 import type { TreeData, TreeNode, ProcessedNode } from "./tree-types";
 
+/**
+ * Some nodes store nodeOverlay values as raw DDS file paths instead of atlas
+ * sprite names (e.g. Oracle conditional nodes, Lich jewel sockets).
+ * Map them to the atlas sprite names used by getAscFrameTexture.
+ */
+const ddsOverlayMap: Record<string, string> = {};
+for (const [asc, prefix] of [["oracle", "Oracle"], ["lich", "Lich"]] as const) {
+  for (const [ddsKind, size] of [["passiveframe", "Small"], ["notableframe", "Large"], ["jewelsocket", "Small"]] as const) {
+    for (const [ddsSuffix, state] of [["active", "Allocated"], ["canallocate", "CanAllocate"], ["normal", "Normal"]] as const) {
+      const ddsPath = `art/textures/interface/2d/2dart/uiimages/ingame/${asc}passiveskillscreen${ddsKind}${ddsSuffix}.dds`;
+      ddsOverlayMap[ddsPath] = `${prefix}Frame${size}${state}`;
+    }
+  }
+}
+
+function normalizeOverlay(
+  overlay: { alloc: string; path: string; unalloc: string } | undefined,
+): { alloc: string; path: string; unalloc: string } | undefined {
+  if (!overlay) return undefined;
+  const alloc = ddsOverlayMap[overlay.alloc];
+  if (!alloc) return overlay; // already uses atlas names
+  return {
+    alloc,
+    path: ddsOverlayMap[overlay.path] ?? overlay.path,
+    unalloc: ddsOverlayMap[overlay.unalloc] ?? overlay.unalloc,
+  };
+}
+
 export function processTree(data: TreeData, activeAscendancy?: string): {
   nodes: Map<string, ProcessedNode>;
   connections: Array<{ from: string; to: string }>;
@@ -104,7 +132,7 @@ export function processTree(data: TreeData, activeAscendancy?: string): {
       ascendancy: node.ascendancyName,
       connections: (node.connections ?? []).map(c => String(c.id)),
       size: getNodeSize(type),
-      nodeOverlay: node.nodeOverlay,
+      nodeOverlay: normalizeOverlay(node.nodeOverlay),
       unlockConstraint: node.unlockConstraint,
     });
   }
