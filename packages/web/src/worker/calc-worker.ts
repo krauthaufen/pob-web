@@ -938,15 +938,13 @@ function pobWebCalcNodeImpact(jsonArg)
     return dkjson.encode({ error = "node not found: " .. tostring(args.nodeId) })
   end
 
-  -- Use PoB's cached calculator from CalcsTab (populated by BuildOutput)
-  -- If BuildOutput crashed before setting miscCalculator (e.g. CalcDefence NaN), init it now
-  if not build.calcsTab.miscCalculator then
-    local initOk, res = pcall(function()
-      build.calcsTab.miscCalculator = { build.calcsTab.calcs.getMiscCalculator(build) }
-    end)
-    if not initOk then
-      return dkjson.encode({ error = "getMiscCalculator init failed: " .. tostring(res) })
-    end
+  -- Always refresh miscCalculator to ensure it reflects current tree state.
+  -- The cached one from BuildOutput can be stale if OnFrame partially failed.
+  local initOk, initErr = pcall(function()
+    build.calcsTab.miscCalculator = { build.calcsTab.calcs.getMiscCalculator(build) }
+  end)
+  if not initOk then
+    return dkjson.encode({ error = "getMiscCalculator init failed: " .. tostring(initErr) })
   end
   local miscOk, calcFunc, calcBase = pcall(build.calcsTab.GetMiscCalculator, build.calcsTab)
   if not miscOk then
