@@ -884,6 +884,85 @@ function pobWebExportBuild(jsonArg)
   return dkjson.encode({ xml = xml })
 end
 
+-- Import a character from PoE API JSON data
+-- Uses ImportTab's existing import logic, then exports as build XML
+function pobWebImportCharacter(jsonArg)
+  if not build then
+    return dkjson.encode({ error = "no build loaded" })
+  end
+  local args = dkjson.decode(jsonArg)
+  if not args or not args.charJson then
+    return dkjson.encode({ error = "missing charJson" })
+  end
+
+  local charData = dkjson.decode(args.charJson)
+  if not charData then
+    return dkjson.encode({ error = "failed to parse character JSON" })
+  end
+
+  -- Ensure build.controls has stubs for SetText etc.
+  if not build.controls then build.controls = {} end
+  if not build.controls.characterLevel then
+    build.controls.characterLevel = { buf = "" }
+    function build.controls.characterLevel:SetText(text) self.buf = tostring(text) end
+  end
+
+  -- Ensure treeTab.controls.versionSelect exists
+  if build.treeTab and build.treeTab.controls and not build.treeTab.controls.versionSelect then
+    build.treeTab.controls.versionSelect = { selIndex = 1 }
+  end
+
+  local importTab = build.importTab
+  if not importTab then
+    return dkjson.encode({ error = "importTab not available" })
+  end
+
+  -- Ensure importTab controls exist with default states for headless
+  if not importTab.controls then importTab.controls = {} end
+  if not importTab.controls.charImportTreeClearJewels then
+    importTab.controls.charImportTreeClearJewels = { state = true }
+  end
+  if not importTab.controls.charImportItemsClearItems then
+    importTab.controls.charImportItemsClearItems = { state = true }
+  end
+  if not importTab.controls.charImportItemsClearSkills then
+    importTab.controls.charImportItemsClearSkills = { state = true }
+  end
+  if not importTab.controls.charImportItemsIgnoreWeaponSwap then
+    importTab.controls.charImportItemsIgnoreWeaponSwap = { state = false }
+  end
+
+  -- Run passive tree + jewels import
+  local ok1, err1 = pcall(function()
+    importTab:ImportPassiveTreeAndJewels(charData)
+  end)
+  if not ok1 then
+    return dkjson.encode({ error = "ImportPassiveTreeAndJewels failed: " .. tostring(err1) })
+  end
+
+  -- Run items + skills import
+  local ok2, err2 = pcall(function()
+    importTab:ImportItemsAndSkills(charData)
+  end)
+  if not ok2 then
+    return dkjson.encode({ error = "ImportItemsAndSkills failed: " .. tostring(err2) })
+  end
+
+  -- Recalculate
+  build.buildFlag = true
+  local okFrame, errFrame = pcall(function()
+    runCallback("OnFrame")
+  end)
+
+  -- Export as XML
+  local okSave, xml = pcall(function() return build:SaveDB("code") end)
+  if not okSave then
+    return dkjson.encode({ error = "SaveDB failed: " .. tostring(xml) })
+  end
+
+  return dkjson.encode({ xml = xml })
+end
+
 -- Deallocate a node using PoB's PassiveSpec:DeallocNode
 function pobWebDeallocNode(jsonArg)
   if not build or not build.spec then
@@ -2035,6 +2114,7 @@ local function installVarControlsStub()
       local stub = { placeholder = 0, enabled = true, selIndex = 1, list = {} }
       function stub:SetPlaceholder(val) self.placeholder = val end
       function stub:SelByValue(val) end
+      function stub:SetSel(idx) self.selIndex = idx end
       function stub:SetText(text) end
       t[k] = stub
       return stub
@@ -3205,6 +3285,25 @@ self.onmessage = async (e: MessageEvent<CalcRequest & { _id?: string }>) => {
         }
       } catch (e) {
         respond(_id, { type: "equipItem", data: emptyEquip, error: String(e) });
+      }
+      break;
+    }
+
+    case "importCharacter": {
+      if (!initialized) {
+        respond(_id, { type: "importCharacter", data: { code: "" }, error: "Engine not initialized" });
+        break;
+      }
+      try {
+        const result = bridge_call_json("pobWebImportCharacter", JSON.stringify({ charJson: msg.charJson }));
+        const data = JSON.parse(result);
+        if (data.error) {
+          respond(_id, { type: "importCharacter", data: { code: "" }, error: data.error });
+        } else {
+          respond(_id, { type: "importCharacter", data: { code: data.xml } });
+        }
+      } catch (e) {
+        respond(_id, { type: "importCharacter", data: { code: "" }, error: String(e) });
       }
       break;
     }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { ImportPanel, EXAMPLE_CODE } from "@/components/ImportExport/ImportPanel";
+import { ImportPanel } from "@/components/ImportExport/ImportPanel";
+import { MainPage } from "@/components/MainPage";
 import { StatsPanel } from "@/components/StatsPanel/StatsPanel";
 import { SkillsPanel } from "@/components/StatsPanel/SkillsPanel";
 import { DefencePanel } from "@/components/StatsPanel/DefencePanel";
@@ -50,6 +51,7 @@ export function App() {
   const setMenuOpen = useCallback((v: boolean) => { setMenuOpenRaw(v); saveUiState({ menuOpen: v }); }, []);
   const setPinned = useCallback((v: boolean) => { setPinnedRaw(v); saveUiState({ pinned: v }); }, []);
   const build = useBuildStore((s) => s.build);
+  const buildModified = useBuildStore((s) => s.buildModified);
   const calcStatus = useBuildStore((s) => s.calcStatus);
   const setCalcStatus = useBuildStore((s) => s.setCalcStatus);
   const setStats = useBuildStore((s) => s.setStats);
@@ -308,9 +310,13 @@ export function App() {
       });
   }, []);
 
-  // Auto-import: shared URL (/b/:key) > localStorage > example build
+  // Auto-import: shared URL (/b/:key) or localStorage (but NOT example build — show main page instead)
   useEffect(() => {
     if (build) return; // already have a build
+
+    // Skip auto-import if this is an OAuth callback — MainPage handles it
+    if (new URLSearchParams(window.location.search).has("code")) return;
+
     (async () => {
       try {
         let code: string | undefined;
@@ -329,9 +335,12 @@ export function App() {
           }
         }
 
+        // Try localStorage (user's last build), but don't fall back to example
         if (!code) {
-          try { code = localStorage.getItem("pob-import-code") || EXAMPLE_CODE; } catch { code = EXAMPLE_CODE; }
+          try { code = localStorage.getItem("pob-import-code") || undefined; } catch {}
         }
+
+        if (!code) return; // No build to auto-load — MainPage will show
 
         const ninjaUrl = parsePoeNinjaUrl(code);
         if (ninjaUrl) {
@@ -359,6 +368,11 @@ export function App() {
       setHeatmapData(null);
     }
   }, [allocatedNodes, setHeatmapData, getHeatmapFingerprint]);
+
+  // Show main page when no build is loaded (and not loading a share URL)
+  if (!build) {
+    return <MainPage calcClient={calcClientRef.current} engineStatus={engineStatus} />;
+  }
 
   return (
     <div className="relative flex h-[100dvh] w-screen overflow-hidden bg-poe-bg text-poe-text">
@@ -460,6 +474,19 @@ export function App() {
                 <rect y="15" width="20" height="2" rx="1" />
               </svg>
             </button>
+            <button
+              className="flex h-9 w-9 items-center justify-center rounded bg-poe-panel/80 text-gray-400 backdrop-blur-sm transition hover:text-white active:bg-poe-panel"
+              onClick={() => {
+                useBuildStore.getState().reset();
+                try { localStorage.removeItem("pob-import-code"); localStorage.removeItem("pob-config"); } catch {}
+              }}
+              aria-label="Back to main page"
+              title="Back to main page"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10 3L5 8l5 5" />
+              </svg>
+            </button>
             {!(menuOpen && pinned) && <span className="hidden text-sm font-bold text-poe-accent sm:inline">PoB Web</span>}
             {engineStatus === "loading" && (
               <span className="text-xs text-yellow-400">Booting...</span>
@@ -557,27 +584,56 @@ export function App() {
           </div>
         </header>
 
-        {/* Node count overlay */}
+        {/* Node count overlay + revert button */}
         {build && useBuildStore.getState().passivesUsed > 0 && (() => {
           const { passivesUsed, ascendancyUsed, weaponSet1Used, weaponSet2Used } = useBuildStore.getState();
+          const isModified = buildModified;
           return (
-            <div className="absolute bottom-3 left-3 z-30 rounded bg-poe-panel/80 px-3 py-1.5 text-xs backdrop-blur-sm">
-              <span className="font-medium text-poe-accent">{passivesUsed}</span>
-              <span className="text-gray-500"> passives</span>
-              {ascendancyUsed > 0 && (
-                <>
-                  <span className="text-gray-600"> / </span>
-                  <span className="font-medium text-poe-accent">{ascendancyUsed}</span>
-                  <span className="text-gray-500"> asc</span>
-                </>
-              )}
-              {(weaponSet1Used > 0 || weaponSet2Used > 0) && (
-                <span className="ml-2 text-gray-600">
-                  (<span style={{ color: "#2a8025" }}>{weaponSet1Used}</span>
-                  <span className="text-gray-600"> / </span>
-                  <span style={{ color: "#2560af" }}>{weaponSet2Used}</span>
-                  <span className="text-gray-500"> ws</span>)
-                </span>
+            <div className="absolute bottom-3 left-3 z-30 flex items-center gap-2">
+              <div className="rounded bg-poe-panel/80 px-3 py-1.5 text-xs backdrop-blur-sm">
+                <span className="font-medium text-poe-accent">{passivesUsed}</span>
+                <span className="text-gray-500"> passives</span>
+                {ascendancyUsed > 0 && (
+                  <>
+                    <span className="text-gray-600"> / </span>
+                    <span className="font-medium text-poe-accent">{ascendancyUsed}</span>
+                    <span className="text-gray-500"> asc</span>
+                  </>
+                )}
+                {(weaponSet1Used > 0 || weaponSet2Used > 0) && (
+                  <span className="ml-2 text-gray-600">
+                    (<span style={{ color: "#2a8025" }}>{weaponSet1Used}</span>
+                    <span className="text-gray-600"> / </span>
+                    <span style={{ color: "#2560af" }}>{weaponSet2Used}</span>
+                    <span className="text-gray-500"> ws</span>)
+                  </span>
+                )}
+              </div>
+              {isModified && calcStatus === "ready" && (
+                <button
+                  className="flex items-center gap-1 rounded bg-poe-panel/80 px-2 py-1.5 text-xs text-yellow-400 backdrop-blur-sm transition hover:text-yellow-300"
+                  onClick={() => {
+                    const { originalImportCode: origCode, setImportCode, setBuild } = useBuildStore.getState();
+                    if (!origCode) return;
+                    try { localStorage.removeItem("pob-config"); } catch {}
+                    setHeatmapData(null);
+                    try {
+                      const xml = decodeBuildCode(origCode);
+                      const parsed = parseBuildXml(xml);
+                      setBuild(parsed);
+                      setImportCode(origCode);
+                    } catch (e) {
+                      console.error("[PoB] Reset failed:", e);
+                    }
+                  }}
+                  title="Revert to original import state"
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                    <path d="M1.5 1.5v3h3" />
+                    <path d="M2 4.5a4.5 4.5 0 1 1-.5 2" />
+                  </svg>
+                  Revert
+                </button>
               )}
             </div>
           );
@@ -599,8 +655,8 @@ export function App() {
         )}
 
         {/* GGG disclaimer */}
-        <div className="absolute bottom-3 right-3 z-30 max-w-xs rounded bg-poe-panel/70 px-2 py-1 text-[10px] leading-tight text-gray-600 backdrop-blur-sm">
-          This product isn't affiliated with or endorsed by Grinding Gear Games in any way.
+        <div className="pointer-events-none absolute bottom-1 left-1/2 z-20 -translate-x-1/2 text-[9px] text-gray-700">
+          Not affiliated with or endorsed by Grinding Gear Games
         </div>
 
         {/* Engine boot log */}

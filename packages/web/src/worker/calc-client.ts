@@ -217,6 +217,12 @@ export class CalcClient {
     return { items: [] };
   }
 
+  async importCharacter(charJson: string): Promise<{ code: string; error?: string }> {
+    const res = await this.send({ type: "importCharacter", charJson });
+    if (res.type === "importCharacter") return { code: res.data.code, error: res.error };
+    return { code: "", error: "unexpected response" };
+  }
+
   async exportBuild(): Promise<string> {
     const res = await this.send({ type: "exportBuild" });
     if (res.type === "exportBuild") return res.data.code;

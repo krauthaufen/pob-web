@@ -18,6 +18,7 @@ export async function refreshAll(calcClient: CalcClient) {
   ]);
 
   const store = useBuildStore.getState();
+  store.setBuildModified(true);
   store.setDisplayStats(displayStats);
   store.setSkillsData(skills);
   store.setCalcDisplay(calcDisplay);

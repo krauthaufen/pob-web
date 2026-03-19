@@ -1,49 +1,82 @@
 # PoB Web
 
-A browser-based version of [Path of Building](https://github.com/PathOfBuildingCommunity/PathOfBuilding-PoE2) for Path of Exile 2. The entire PoB calculation engine runs client-side — Lua compiled to WebAssembly — so there's no server doing the math, just your browser.
+A browser-based [Path of Building](https://github.com/PathOfBuildingCommunity/PathOfBuilding-PoE2) for Path of Exile 2. The full PoB calculation engine runs client-side — Lua compiled to WebAssembly — no server math, just your browser.
 
 **Try it:** [pob.awx.at](https://pob.awx.at)
 
-## What It Does
+## Features
 
-**Import builds** from PoB codes or poe.ninja character URLs. **Share them** as short links like `pob.awx.at/b/abc123`. Export your changes back to a PoB code when you're done.
+- **Import builds** from PoB codes, poe.ninja character URLs, or directly from your PoE2 account via OAuth
+- **Share builds** as short links (`pob.awx.at/b/abc123`), export changes back to PoB codes
+- **Interactive passive tree** — allocate/deallocate nodes, path cost display, stat search, node power heatmap
+- **Full stats** — offence per skill, defence/EHP, resistances, ~200 config options with live recalc
+- **Items & gems** — equipped items with mods/runes, socket groups with supports, custom item paste, slot browser
+- **PoE2 account import** — OAuth login, character list, one-click import of tree/items/skills
+- **Mobile-friendly** — touch support, responsive layout, installable as PWA
 
-**Full passive tree** you can actually interact with — allocate and deallocate nodes, see path costs, search by stat, and run a node power heatmap to find the best pickups for your build.
+## Architecture
 
-**All the stats** from PoB desktop: offence breakdown per skill, defence and EHP, resistances, all ~200 config options with live recalc. Switch between skills, tweak enemy settings, see what changes.
+```
+Browser (Main Thread)                          Web Worker
+┌──────────────────────────┐    postMessage    ┌──────────────────────┐
+│ React + PixiJS           │ ◄──────────────► │ Lua 5.2 (WASM)       │
+│                          │                   │ + PoB engine          │
+│ MainPage (OAuth/import)  │                   │ + HeadlessWrapper     │
+│ PassiveTree (WebGL)      │                   │ + dkjson              │
+│ Stats/Skills/Items/Gems  │                   │                      │
+│ ConfigPanel              │                   │ Deflate/Inflate       │
+│ Zustand stores           │                   │ (Emscripten zlib)     │
+└──────────────────────────┘                   └──────────────────────┘
+```
 
-**Items, gems, and socket groups** are all displayed with their full details — mods, runes, supports, the works.
-
-Works on phones too. Installs as a PWA.
-
-## What's Missing
-
-This is a viewer with tree editing, not a full build editor. You can't:
-
-- Create or modify items
-- Add, remove, or swap skill gems
-- Manage multiple tree specs
-- Undo tree changes (re-import to revert)
-- Import directly from a GGG account (use poe.ninja URLs instead)
-- Save multiple builds locally
+The Lua VM runs PoB's calculation engine unmodified in a Web Worker. The main thread sends commands (load build, allocate node, get stats) via `postMessage` and renders the results with React and PixiJS.
 
 ## Project Structure
 
 ```
 packages/
-  lua-wasm/     Lua 5.2 → WASM via Emscripten
-  web/          React + Vite frontend (PixiJS for the tree)
-  pob-data/     Build scripts for sprites and Lua bundle
+  lua-wasm/          Lua 5.2 → WASM via Emscripten (bridge.c for JS↔Lua FFI)
+  web/               React 19 + Vite frontend
+    src/
+      components/
+        MainPage.tsx           Landing page, OAuth login, character import
+        ImportExport/          Build code import/export, sharing
+        PassiveTree/           PixiJS tree renderer, node interaction, sprites
+        StatsPanel/            Stats, skills, gems, items, defence, config panels
+      store/
+        build-store.ts         Build state, calc results, UI state (Zustand)
+        auth-store.ts          OAuth token, account, character list
+      worker/
+        calc-worker.ts         Lua WASM boot, PoB engine, message handlers
+        calc-client.ts         Promise-based worker client
+        calc-api.ts            Message type definitions
+        build-decoder.ts       PoB code encode/decode, poe.ninja fetching
+        lua-shims.ts           LuaJIT → Lua 5.2 compatibility (bit, jit, utf8)
+      utils/
+        poe-auth.ts            OAuth 2.0 PKCE flow (GGG API)
+        poe-api.ts             PoE2 character API client
+        item-images.ts         Wiki image resolution with caching
+        refresh-all.ts         Post-mutation stat refresh orchestration
+        is-touch.ts            Touch device detection for hover suppression
+    public/
+      data/pob-lua.json        Bundled PoB Lua files (~34MB, ~3.8MB gzipped)
+      data/tree.json           PoE2 passive tree data
+      data/sprites/            BC7-decoded sprite atlases (PNG)
+      wasm/                    Lua WASM binary + JS glue (symlink)
+  pob-data/            Build-time asset processing
+    bundle-lua.mjs       Bundle PoB Lua files into JSON
+    convert-sprites.mjs  Convert DDS sprite sheets to PNG atlases
+    bc7-decode.mjs       BC7 texture block decoder
 vendor/
-  PathOfBuilding-PoE2/   PoB source (git submodule)
+  PathOfBuilding-PoE2/   PoB source (git submodule, unmodified)
 deploy/
   docker-compose.yml     nginx + haste-server for production
-  nginx.conf
+  nginx.conf             SPA routing, API proxies, build sharing
 ```
 
 ## Development
 
-You'll need Node.js 20+ and the [Emscripten SDK](https://emscripten.org/) for WASM builds.
+Requires Node.js 20+ and the [Emscripten SDK](https://emscripten.org/) for WASM builds.
 
 ```bash
 git clone --recurse-submodules https://github.com/krauthaufen/pob-web.git
@@ -51,27 +84,68 @@ cd pob-web
 npm install
 ```
 
-Build the data files (one-time, requires the PoB submodule):
+Build the data files (one-time, requires PoB submodule):
 
 ```bash
-npm run build:wasm          # compile Lua to WASM
-npm run bundle:lua          # bundle PoB's Lua files
+source ~/emsdk/emsdk_env.sh   # activate Emscripten
+npm run build:wasm             # compile Lua to WASM
+npm run bundle:lua             # bundle PoB Lua files
 node packages/pob-data/convert-sprites.mjs  # convert tree sprites
 ```
 
-Then start the dev server:
+Start the dev server:
 
 ```bash
 npm run dev
 ```
 
-For build sharing during development, run a local haste-server:
+The Vite dev server proxies `/poe-oauth`, `/poe-api`, `/poe-ninja-api`, and `/api` to their respective backends. For build sharing during development, run a local haste-server:
 
 ```bash
 docker run -d --name haste -p 7777:7777 rlister/hastebin
 ```
 
-See [deploy/README.md](deploy/README.md) for production setup.
+## Deployment
+
+Production runs on Docker with nginx serving the SPA and proxying to haste-server for build sharing.
+
+```bash
+cd packages/web && npx vite build
+rsync -a --delete packages/web/dist/ server:/path/to/pob/dist/
+```
+
+The nginx config handles:
+- SPA routing (all paths → `index.html`)
+- Immutable caching for hashed assets
+- Build sharing via haste-server (`/api/documents` POST, `/api/raw/:key` GET)
+- CORS proxy for poe.ninja API (`/poe-ninja-api/`)
+- OAuth proxy for GGG API (`/poe-oauth/`, `/poe-api/`)
+
+See [deploy/README.md](deploy/README.md) for full setup.
+
+## OAuth (PoE2 Account Import)
+
+GGG-approved OAuth application:
+- **Client ID:** `pobweb` (public client, PKCE)
+- **Scopes:** `account:profile`, `account:characters`
+- **Redirect URI:** `https://pob.awx.at/`
+- **Flow:** Authorization Code + PKCE (no client secret)
+
+The authorize redirect goes directly to `www.pathofexile.com`. Token exchange and API calls go through the nginx proxy to avoid CORS. Character list uses `/character/poe2` for PoE2-only results.
+
+## Tech Stack
+
+| Component | Technology |
+|-----------|-----------|
+| UI | React 19 + TypeScript |
+| Bundler | Vite 6 |
+| Tree renderer | PixiJS 8 (WebGL) |
+| Calc engine | Lua 5.2 → WASM (Emscripten) |
+| State | Zustand |
+| Styling | Tailwind CSS 3.4 |
+| Build import | pako (inflate) + DOMParser |
+| Testing | Playwright |
+| Offline | Service Worker + PWA |
 
 ## License
 

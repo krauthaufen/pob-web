@@ -32,6 +32,7 @@ export type CalcRequest =
   | { type: "addCustomItem"; rawText: string }
   | { type: "getSlotItems"; slotName: string }
   | { type: "equipItem"; itemId: number; slotName: string }
+  | { type: "importCharacter"; charJson: string }
   | { type: "exec"; code: string };
 
 /** Per-skill DPS entry from PoB's calcFullDPS (output.SkillDPS) */
@@ -332,6 +333,7 @@ export type CalcResponse =
   | { type: "addCustomItem"; data: { success: boolean; error?: string; itemId?: number; primarySlot?: string }; error?: string }
   | { type: "slotItems"; data: SlotItemEntry[]; error?: string }
   | { type: "equipItem"; data: { items: EquippedItem[] }; error?: string }
+  | { type: "importCharacter"; data: { code: string }; error?: string }
   | { type: "error"; message: string }
   | { type: "log"; message: string }
   | { type: "exec"; result?: string; error?: string };

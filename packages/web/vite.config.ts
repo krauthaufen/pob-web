@@ -20,6 +20,16 @@ export default defineConfig({
     allowedHosts: ["pob.haaser.me", "pob.awx.at"],
     hmr: false,
     proxy: {
+      "/poe-oauth": {
+        target: "https://pathofexile.com",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/poe-oauth/, "/oauth"),
+      },
+      "/poe-api": {
+        target: "https://api.pathofexile.com",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/poe-api/, ""),
+      },
       "/poe-ninja-api": {
         target: "https://poe.ninja",
         changeOrigin: true,

@@ -71,6 +71,7 @@ interface BuildState {
   build: PobBuild | null;
   importCode: string;
   originalImportCode: string;
+  buildModified: boolean;
 
   // Calc engine state
   calcStatus: CalcStatus;
@@ -109,6 +110,7 @@ interface BuildState {
   setBuild: (build: PobBuild) => void;
   setImportCode: (code: string) => void;
   setOriginalImportCode: (code: string) => void;
+  setBuildModified: (modified: boolean) => void;
   setCalcStatus: (status: CalcStatus, error?: string) => void;
   setStats: (stats: CalcStats) => void;
   setSkillsData: (data: SkillsData) => void;
@@ -145,7 +147,8 @@ const emptyStats: CalcStats = {
 export const useBuildStore = create<BuildState>((set) => ({
   build: null,
   importCode: "",
-  originalImportCode: "",
+  originalImportCode: (() => { try { return localStorage.getItem("pob-original-import-code") || ""; } catch { return ""; } })(),
+  buildModified: false,
   calcStatus: "idle",
   calcError: null,
   stats: null,
@@ -176,6 +179,7 @@ export const useBuildStore = create<BuildState>((set) => ({
     set({
       build,
       allocatedNodes: new Set(build.nodes),
+      buildModified: false,
       calcError: null,
     }),
 
@@ -183,7 +187,11 @@ export const useBuildStore = create<BuildState>((set) => ({
     set({ importCode });
     try { localStorage.setItem("pob-import-code", importCode); } catch {}
   },
-  setOriginalImportCode: (originalImportCode) => set({ originalImportCode }),
+  setOriginalImportCode: (originalImportCode) => {
+    set({ originalImportCode });
+    try { localStorage.setItem("pob-original-import-code", originalImportCode); } catch {}
+  },
+  setBuildModified: (buildModified) => set({ buildModified }),
 
   setCalcStatus: (calcStatus, error) =>
     set({ calcStatus, calcError: error ?? null }),
@@ -227,6 +235,7 @@ export const useBuildStore = create<BuildState>((set) => ({
       build: null,
       importCode: "",
       originalImportCode: "",
+      buildModified: false,
       calcStatus: "idle",
       calcError: null,
       stats: emptyStats,
