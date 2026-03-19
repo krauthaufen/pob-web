@@ -50,6 +50,10 @@ Boot sequence: load WASM → apply Lua shims (bit, jit, utf8) → populate MEMFS
 
 Controlled by `build` in the Zustand store — no router library.
 
+### Class Name Resolution
+
+The PoE2 API returns internal class IDs (e.g. `Mercenary3`) not display names. `MainPage.tsx` loads `tree.json` at runtime to build an `internalId` → `{displayName, baseClass}` map. Character list shows ascendancy art from the sprite atlas (`ascendancy-background_250_250_BC7.png`) via CSS background-position, with proper names like "Gemling Legionnaire (Mercenary)".
+
 ## Key Conventions
 
 - **Lua↔JS bridge**: All Lua functions prefixed `pobWeb*` (e.g. `pobWebLoadBuild`, `pobWebGetStats`). Called via `bridge_call_json(funcName, jsonArg)`, return JSON strings.

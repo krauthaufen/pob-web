@@ -11,6 +11,74 @@ import { startLogin, handleCallback, getToken, isLoggedIn, logout } from "@/util
 import { fetchCharacterList, type PoeCharacterEntry } from "@/utils/poe-api";
 import type { CalcClient } from "@/worker/calc-client";
 
+const SPRITE_ATLAS = "/data/sprites/ascendancy-background_250_250_BC7.png";
+
+interface SpriteInfo { x: number; y: number; w: number; h: number }
+
+/** Resolve API class string (e.g. "Mercenary3") to display name and sprite key. */
+function useClassInfo() {
+  const [atlas, setAtlas] = useState<Record<string, SpriteInfo> | null>(null);
+  const [classMap, setClassMap] = useState<Record<string, { displayName: string; baseClass: string }>>({});
+
+  useEffect(() => {
+    // Load sprite atlas metadata
+    fetch("/data/sprites/ascendancy-background_250_250_BC7.json")
+      .then((r) => r.json())
+      .then((data) => setAtlas(data.sprites))
+      .catch(() => {});
+
+    // Load tree.json to build internalId → displayName map
+    fetch("/data/tree.json")
+      .then((r) => r.json())
+      .then((data) => {
+        const map: Record<string, { displayName: string; baseClass: string }> = {};
+        for (const cls of data.classes ?? []) {
+          // Base class maps to itself
+          map[cls.name] = { displayName: cls.name, baseClass: cls.name };
+          for (const asc of cls.ascendancies ?? []) {
+            const intId = asc.internalId ?? asc.id;
+            map[intId] = { displayName: asc.name, baseClass: cls.name };
+            // Also map the display name to itself (in case API returns that)
+            map[asc.name] = { displayName: asc.name, baseClass: cls.name };
+          }
+        }
+        setClassMap(map);
+      })
+      .catch(() => {});
+  }, []);
+
+  return { atlas, classMap };
+}
+
+function ClassSprite({ apiClass, classMap, atlas, size = 36 }: {
+  apiClass: string;
+  classMap: Record<string, { displayName: string; baseClass: string }>;
+  atlas: Record<string, SpriteInfo> | null;
+  size?: number;
+}) {
+  const info = classMap[apiClass];
+  const spriteName = info ? `Classes${info.displayName}` : `Classes${apiClass}`;
+  const sprite = atlas?.[spriteName];
+
+  if (!sprite) {
+    return <div className="shrink-0 rounded-full bg-poe-border" style={{ width: size, height: size }} />;
+  }
+
+  const scale = size / sprite.w;
+  return (
+    <div
+      className="shrink-0 rounded-full"
+      style={{
+        width: size,
+        height: size,
+        backgroundImage: `url(${SPRITE_ATLAS})`,
+        backgroundPosition: `-${sprite.x * scale}px -${sprite.y * scale}px`,
+        backgroundSize: `${1500 * scale}px ${1500 * scale}px`,
+      }}
+    />
+  );
+}
+
 interface MainPageProps {
   calcClient: CalcClient | null;
   engineStatus: string;
@@ -19,6 +87,7 @@ interface MainPageProps {
 export function MainPage({ calcClient, engineStatus }: MainPageProps) {
   const { token, account, characters, loading, error, setToken, setAccount, setCharacters, setLoading, setError, logout: authLogout } = useAuthStore();
   const { setBuild, setImportCode, setOriginalImportCode } = useBuildStore();
+  const { atlas, classMap } = useClassInfo();
 
   const [importInput, setImportInput] = useState(() => {
     try { return localStorage.getItem("pob-import-code") || ""; } catch { return ""; }
@@ -26,18 +95,9 @@ export function MainPage({ calcClient, engineStatus }: MainPageProps) {
   const [importError, setImportError] = useState<string | null>(null);
   const [importLoading, setImportLoading] = useState(false);
   const [charLoading, setCharLoading] = useState<string | null>(null);
-  const [debugInfo, setDebugInfo] = useState<string>("");
 
   // Handle OAuth callback on mount
   useEffect(() => {
-    // Capture URL params for debugging before anything cleans them
-    const params = new URLSearchParams(window.location.search);
-    const debugParts = [`href=${window.location.href.substring(0, 200)}`];
-    for (const [k, v] of params.entries()) {
-      debugParts.push(`${k}=${v.substring(0, 30)}`);
-    }
-    if (debugParts.length > 1) setDebugInfo(debugParts.join("\n"));
-
     (async () => {
       try {
         const result = await handleCallback();
@@ -188,27 +248,38 @@ export function MainPage({ calcClient, engineStatus }: MainPageProps) {
             ) : characters.length === 0 ? (
               <div className="py-4 text-center text-sm text-gray-500">No characters found</div>
             ) : (
-              <div className="max-h-72 space-y-3 overflow-y-auto">
+              <div className="max-h-80 space-y-3 overflow-y-auto">
                 {Object.entries(charsByLeague).map(([league, chars]) => (
                   <div key={league}>
                     <div className="mb-1 text-xs font-medium uppercase tracking-wider text-gray-500">{league}</div>
                     <div className="space-y-1">
-                      {chars.sort((a, b) => b.level - a.level).map((char) => (
-                        <button
-                          key={char.id}
-                          className="flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm transition hover:bg-poe-bg disabled:opacity-50"
-                          onClick={() => handleCharacterImport(char)}
-                          disabled={!engineReady || !!charLoading}
-                        >
-                          <div>
-                            <span className="font-medium text-poe-text">{char.name}</span>
-                            <span className="ml-2 text-gray-500">{char.class}</span>
-                          </div>
-                          <span className="text-xs text-gray-500">
-                            {charLoading === char.name ? "Importing..." : `Lv ${char.level}`}
-                          </span>
-                        </button>
-                      ))}
+                      {chars.sort((a, b) => b.level - a.level).map((char) => {
+                        const info = classMap[char.class];
+                        const displayClass = info?.displayName ?? char.class;
+                        const baseClass = info?.baseClass;
+                        const isAscended = baseClass && displayClass !== baseClass;
+                        return (
+                          <button
+                            key={char.id}
+                            className="flex w-full items-center gap-3 rounded px-3 py-2 text-left text-sm transition hover:bg-poe-bg disabled:opacity-50"
+                            onClick={() => handleCharacterImport(char)}
+                            disabled={!engineReady || !!charLoading}
+                          >
+                            <ClassSprite apiClass={char.class} classMap={classMap} atlas={atlas} size={36} />
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate font-medium text-poe-text">{char.name}</div>
+                              <div className="truncate text-xs text-gray-500">
+                                {isAscended ? (
+                                  <>{displayClass} <span className="text-gray-600">({baseClass})</span></>
+                                ) : displayClass}
+                              </div>
+                            </div>
+                            <span className="shrink-0 text-xs text-gray-500">
+                              {charLoading === char.name ? "Importing..." : `Lv ${char.level}`}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
@@ -261,11 +332,6 @@ export function MainPage({ calcClient, engineStatus }: MainPageProps) {
         {/* Engine status */}
         {engineStatus === "loading" && (
           <p className="mt-3 text-center text-xs text-yellow-400">Engine booting...</p>
-        )}
-
-        {/* Debug info */}
-        {debugInfo && (
-          <pre className="mt-3 whitespace-pre-wrap break-all rounded bg-gray-900 p-2 text-[10px] text-gray-400">{debugInfo}</pre>
         )}
 
         {/* GGG disclaimer */}

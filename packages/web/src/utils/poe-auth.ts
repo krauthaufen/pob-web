@@ -52,17 +52,12 @@ export async function handleCallback(): Promise<{ token: string; account?: strin
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
 
-  console.log("[OAuth] callback params:", { code: code?.substring(0, 20), state: state?.substring(0, 20), allParams: url.search.substring(0, 200) });
-
   if (!code) return null;
 
   const savedState = sessionStorage.getItem("poe-pkce-state");
   const verifier = sessionStorage.getItem("poe-pkce-verifier");
 
-  console.log("[OAuth] state check:", { savedState: savedState?.substring(0, 20), stateMatch: state === savedState, hasVerifier: !!verifier });
-
   if (!savedState || state !== savedState || !verifier) {
-    console.error("OAuth state mismatch", { savedState, state, hasVerifier: !!verifier });
     return null;
   }
 
@@ -85,14 +80,12 @@ export async function handleCallback(): Promise<{ token: string; account?: strin
     body: body.toString(),
   });
 
-  const responseText = await res.text();
-  console.log("[OAuth] token response:", res.status, responseText.substring(0, 500));
-
   if (!res.ok) {
-    throw new Error(`Token exchange failed: ${res.status} ${responseText}`);
+    const text = await res.text();
+    throw new Error(`Token exchange failed: ${res.status} ${text}`);
   }
 
-  const data = JSON.parse(responseText);
+  const data = await res.json();
   const expiresAt = Date.now() + data.expires_in * 1000;
 
   localStorage.setItem(TOKEN_KEY, data.access_token);
