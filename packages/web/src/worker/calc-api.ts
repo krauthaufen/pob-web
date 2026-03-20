@@ -6,7 +6,7 @@ export type CalcRequest =
   | { type: "init" }
   | { type: "loadBuild"; xml: string }
   | { type: "getStats" }
-  | { type: "getSkills" }
+  | { type: "getSkills"; skipAutoSelect?: boolean }
   | { type: "getDefence" }
   | { type: "getCalcDisplay" }
   | { type: "getJewels" }
@@ -79,6 +79,9 @@ export interface MainSkillStats {
   TotalMin: number;
   TotalMax: number;
   damageTypes: Record<string, DamageTypeBreakdown>;
+  isMinion?: boolean;
+  minionDps?: number;
+  activeMinionLimit?: number;
 }
 
 /** Skill part (e.g. "Arrow" vs "Shards" for Ice Shot) */
@@ -96,6 +99,7 @@ export interface SkillsData {
   groups: SocketGroupInfo[];
   parts?: SkillPartInfo[];
   selectedPart?: number;
+  weaponSet?: number;
 }
 
 /** A single stat delta from PoB's CalculatePowerStat */
@@ -119,6 +123,7 @@ export interface SwitchSkillResult {
   display?: CalcSection[];
   parts?: SkillPartInfo[];
   selectedPart?: number;
+  weaponSet?: number;
 }
 
 /** CalcDisplay: PoB's CalcSections-based structured output */

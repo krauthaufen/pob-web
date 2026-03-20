@@ -200,13 +200,18 @@ export function SkillsPanel({ calcClient }: SkillsPanelProps) {
 
       {/* DPS headline */}
       {mainStats && (mainStats.CombinedDPS > 0 || mainStats.TotalDPS > 0) && (
-        <div className="flex justify-between text-xs">
-          <span className="text-gray-400">
-            {switching ? "Recalculating..." : (selected?.activeSkillNames.join(", ") || "Selected Skill")}
-          </span>
-          <span className="font-medium text-yellow-300">
-            {formatNum(mainStats.CombinedDPS || mainStats.TotalDPS)} DPS
-          </span>
+        <div>
+          <div className="flex justify-between text-xs">
+            <span className="text-gray-400">
+              {switching ? "Recalculating..." : (selected?.activeSkillNames.join(", ") || "Selected Skill")}
+            </span>
+            <span className="font-medium text-yellow-300">
+              {formatNum(mainStats.CombinedDPS || mainStats.TotalDPS)} DPS
+            </span>
+          </div>
+          {mainStats.isMinion && (
+            <div className="text-[10px] text-gray-500 mt-0.5">per minion</div>
+          )}
         </div>
       )}
 

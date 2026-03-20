@@ -62,8 +62,8 @@ export class CalcClient {
     return {};
   }
 
-  async getSkills(): Promise<SkillsData> {
-    const res = await this.send({ type: "getSkills" });
+  async getSkills(opts?: { skipAutoSelect?: boolean }): Promise<SkillsData> {
+    const res = await this.send({ type: "getSkills", ...opts });
     if (res.type === "skills") return res.data;
     return { mainSocketGroup: 1, fullDps: 0, skills: [], groups: [] };
   }

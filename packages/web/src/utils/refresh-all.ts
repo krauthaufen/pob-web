@@ -11,7 +11,7 @@ import { resolveGemImages } from "@/utils/item-images";
 export async function refreshAll(calcClient: CalcClient) {
   const [displayStats, skills, calcDisplay, items, gems] = await Promise.all([
     calcClient.getDisplayStats(),
-    calcClient.getSkills(),
+    calcClient.getSkills({ skipAutoSelect: true }),
     calcClient.getCalcDisplay(),
     calcClient.getItems(),
     calcClient.getGems(),

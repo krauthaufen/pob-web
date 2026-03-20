@@ -384,28 +384,64 @@ function pobWebGetSkillsData(jsonArg)
     return dkjson.encode({ error = "no build loaded" })
   end
 
-  -- Auto-select highest DPS skill group
+  local args = jsonArg and dkjson.decode(jsonArg) or {}
+  local skipAutoSelect = args and args.skipAutoSelect
+
+  -- Auto-select highest DPS skill group (only on initial load)
+  -- Tries both weapon sets for each group to handle bow/crossbow builds
   local skillsTab = build.skillsTab
-  if skillsTab and skillsTab.socketGroupList then
+  if not skipAutoSelect and skillsTab and skillsTab.socketGroupList then
     local bestIndex = build.mainSocketGroup or 1
     local bestDps = 0
+    local bestWS2 = false
 
-    for i, group in ipairs(skillsTab.socketGroupList) do
-      if group.enabled ~= false then
-        build.mainSocketGroup = i
-        build.modFlag = true
+    local itemsTab = build.itemsTab
+
+    local function evalGroup(i)
+      build.mainSocketGroup = i
+      build.modFlag = true
+      build.buildFlag = true
+      pcall(runCallback, "OnFrame")
+      local o = build.calcsTab and build.calcsTab.mainOutput
+      local combined = o and o.CombinedDPS or 0
+      local total = o and o.TotalDPS or 0
+      -- For minion skills, DPS lives in output.Minion
+      local minionDps = o and o.Minion and o.Minion.TotalDPS or 0
+      local playerDps = combined > 0 and combined or total
+      return playerDps > 0 and playerDps or minionDps
+    end
+
+    local function setWeaponSet(useWS2)
+      if itemsTab and itemsTab.activeItemSet then
+        itemsTab.activeItemSet.useSecondWeaponSet = useWS2
         build.buildFlag = true
-        pcall(runCallback, "OnFrame")
-        local o = build.calcsTab and build.calcsTab.mainOutput
-        local dps = o and (o.CombinedDPS or o.TotalDPS or 0) or 0
-        if dps > bestDps then
-          bestDps = dps
-          bestIndex = i
-        end
+        build.modFlag = true
       end
     end
 
-    -- Switch to best group for final output
+    for i, group in ipairs(skillsTab.socketGroupList) do
+      if group.enabled ~= false then
+        -- Try weapon set 1
+        setWeaponSet(false)
+        local ok1, dps1 = pcall(evalGroup, i)
+        if not ok1 then dps1 = 0 end
+
+        -- Try weapon set 2
+        setWeaponSet(true)
+        local ok2, dps2 = pcall(evalGroup, i)
+        if not ok2 then dps2 = 0 end
+
+        local dps = dps1 > dps2 and dps1 or dps2
+        local ws2 = dps2 > dps1
+        if dps > bestDps then
+          bestDps = dps
+          bestIndex = i
+          bestWS2 = ws2
+        end
+      end
+    end
+    -- Switch to best group + weapon set for final output
+    setWeaponSet(bestWS2)
     build.mainSocketGroup = bestIndex
     build.modFlag = true
     build.buildFlag = true
@@ -413,11 +449,13 @@ function pobWebGetSkillsData(jsonArg)
   end
 
   local output = build.calcsTab and build.calcsTab.mainOutput
+  local ws2 = build.itemsTab and build.itemsTab.activeItemSet and build.itemsTab.activeItemSet.useSecondWeaponSet or false
   local result = {
     mainSocketGroup = build.mainSocketGroup or 1,
     fullDps = output and (output.FullDPS or output.CombinedDPS) or 0,
     skills = {},   -- per-skill DPS from SkillDPS
     groups = {},   -- socket group metadata
+    weaponSet = ws2 and 2 or 1,
   }
 
   -- Per-skill DPS from calcFullDPS (already computed at build load)
@@ -435,12 +473,24 @@ function pobWebGetSkillsData(jsonArg)
 
   -- Main skill detailed stats
   if output then
+    -- Determine if this is a minion skill (player has no DPS but minion does)
+    local isMinion = false
+    local minionOut = output.Minion
+    local playerDps = (output.CombinedDPS or 0) + (output.TotalDPS or 0)
+    local minionTotalDps = minionOut and minionOut.TotalDPS or 0
+    if playerDps == 0 and minionTotalDps > 0 then
+      isMinion = true
+    end
+
+    -- Use minion output for damage source when it's a minion skill
+    local statSrc = isMinion and minionOut or output
+
     -- Per-damage-type breakdown
     -- For attacks, damage lives on output.MainHand/OffHand; for spells, on output directly
     local damageTypes = {}
-    local dmgSrc = output
-    if output.MainHand and output.MainHand.AverageHit and output.MainHand.AverageHit > 0 then
-      dmgSrc = output.MainHand
+    local dmgSrc = statSrc
+    if statSrc.MainHand and statSrc.MainHand.AverageHit and statSrc.MainHand.AverageHit > 0 then
+      dmgSrc = statSrc.MainHand
     end
     -- Collect HitAverage per type and compute total
     local typeAvgs = {}
@@ -465,23 +515,30 @@ function pobWebGetSkillsData(jsonArg)
       end
     end
 
+    -- Minion count and per-minion DPS
+    local activeMinionLimit = output.ActiveMinionLimit or 0
+    local minionDps = minionTotalDps
+
     result.mainSkillStats = {
-      TotalDPS = output.TotalDPS or 0,
-      CombinedDPS = output.CombinedDPS or 0,
-      TotalDot = output.TotalDot or 0,
-      BleedDPS = output.BleedDPS or 0,
-      IgniteDPS = output.IgniteDPS or 0,
-      PoisonDPS = output.PoisonDPS or 0,
-      Speed = output.Speed or 0,
-      CastSpeed = output.CastSpeed or 0,
-      CritChance = output.CritChance or 0,
-      CritMultiplier = output.CritMultiplier or 0,
-      AverageDamage = output.AverageDamage or 0,
-      AverageHit = dmgSrc.AverageHit or output.AverageHit or 0,
+      TotalDPS = isMinion and minionTotalDps or (output.TotalDPS or 0),
+      CombinedDPS = isMinion and minionTotalDps or (output.CombinedDPS or 0),
+      TotalDot = statSrc.TotalDot or 0,
+      BleedDPS = statSrc.BleedDPS or 0,
+      IgniteDPS = statSrc.IgniteDPS or 0,
+      PoisonDPS = statSrc.PoisonDPS or 0,
+      Speed = statSrc.Speed or 0,
+      CastSpeed = statSrc.CastSpeed or 0,
+      CritChance = statSrc.CritChance or 0,
+      CritMultiplier = statSrc.CritMultiplier or 0,
+      AverageDamage = statSrc.AverageDamage or 0,
+      AverageHit = dmgSrc.AverageHit or statSrc.AverageHit or 0,
       TotalMin = totalMin,
       TotalMax = totalMax,
       ManaCost = output.ManaCost or 0,
       damageTypes = damageTypes,
+      isMinion = isMinion,
+      minionDps = minionDps,
+      activeMinionLimit = activeMinionLimit,
     }
   end
 
@@ -550,18 +607,52 @@ function pobWebSwitchMainSkill(jsonArg)
     print("OnFrame after skill switch (non-fatal): " .. tostring(err))
   end
 
+  -- Auto-switch weapon set if skill produces 0 DPS on current set
+  local itemsTab = build.itemsTab
+  if itemsTab and itemsTab.activeItemSet then
+    local o = build.calcsTab and build.calcsTab.mainOutput
+    local dps = o and (o.CombinedDPS or 0) + (o.TotalDPS or 0) or 0
+    local minionDps = o and o.Minion and o.Minion.TotalDPS or 0
+    if dps == 0 and minionDps == 0 then
+      -- Try the other weapon set
+      itemsTab.activeItemSet.useSecondWeaponSet = not itemsTab.activeItemSet.useSecondWeaponSet
+      build.modFlag = true
+      build.buildFlag = true
+      pcall(runCallback, "OnFrame")
+      local o2 = build.calcsTab and build.calcsTab.mainOutput
+      local dps2 = o2 and (o2.CombinedDPS or 0) + (o2.TotalDPS or 0) or 0
+      local minionDps2 = o2 and o2.Minion and o2.Minion.TotalDPS or 0
+      if dps2 == 0 and minionDps2 == 0 then
+        -- Neither set works, revert
+        itemsTab.activeItemSet.useSecondWeaponSet = not itemsTab.activeItemSet.useSecondWeaponSet
+        build.modFlag = true
+        build.buildFlag = true
+        pcall(runCallback, "OnFrame")
+      end
+    end
+  end
+
   -- Return updated main skill stats
   local output = build.calcsTab and build.calcsTab.mainOutput
   if not output then
     return dkjson.encode({ error = "no calc output after switch" })
   end
 
+  -- Determine if this is a minion skill
+  local isMinion = false
+  local minionOut = output.Minion
+  local playerDps = (output.CombinedDPS or 0) + (output.TotalDPS or 0)
+  local minionTotalDps = minionOut and minionOut.TotalDPS or 0
+  if playerDps == 0 and minionTotalDps > 0 then
+    isMinion = true
+  end
+  local statSrc = isMinion and minionOut or output
+
   -- Per-damage-type breakdown
-  -- For attacks, damage lives on output.MainHand/OffHand; for spells, on output directly
   local damageTypes = {}
-  local dmgSrc = output
-  if output.MainHand and output.MainHand.AverageHit and output.MainHand.AverageHit > 0 then
-    dmgSrc = output.MainHand
+  local dmgSrc = statSrc
+  if statSrc.MainHand and statSrc.MainHand.AverageHit and statSrc.MainHand.AverageHit > 0 then
+    dmgSrc = statSrc.MainHand
   end
   local typeAvgs = {}
   local totalAvg = 0
@@ -584,23 +675,27 @@ function pobWebSwitchMainSkill(jsonArg)
     end
   end
 
+  local activeMinionLimit = output.ActiveMinionLimit or 0
   local stats = {
-    TotalDPS = output.TotalDPS or 0,
-    CombinedDPS = output.CombinedDPS or 0,
-    TotalDot = output.TotalDot or 0,
-    BleedDPS = output.BleedDPS or 0,
-    IgniteDPS = output.IgniteDPS or 0,
-    PoisonDPS = output.PoisonDPS or 0,
-    Speed = output.Speed or 0,
-    CastSpeed = output.CastSpeed or 0,
-    CritChance = output.CritChance or 0,
-    CritMultiplier = output.CritMultiplier or 0,
-    AverageDamage = output.AverageDamage or 0,
-    AverageHit = dmgSrc.AverageHit or output.AverageHit or 0,
+    TotalDPS = isMinion and minionTotalDps or (output.TotalDPS or 0),
+    CombinedDPS = isMinion and minionTotalDps or (output.CombinedDPS or 0),
+    TotalDot = statSrc.TotalDot or 0,
+    BleedDPS = statSrc.BleedDPS or 0,
+    IgniteDPS = statSrc.IgniteDPS or 0,
+    PoisonDPS = statSrc.PoisonDPS or 0,
+    Speed = statSrc.Speed or 0,
+    CastSpeed = statSrc.CastSpeed or 0,
+    CritChance = statSrc.CritChance or 0,
+    CritMultiplier = statSrc.CritMultiplier or 0,
+    AverageDamage = statSrc.AverageDamage or 0,
+    AverageHit = dmgSrc.AverageHit or statSrc.AverageHit or 0,
     TotalMin = totalMin,
     TotalMax = totalMax,
     ManaCost = output.ManaCost or 0,
     damageTypes = damageTypes,
+    isMinion = isMinion,
+    minionDps = minionTotalDps,
+    activeMinionLimit = activeMinionLimit,
   }
 
   -- Also update SkillDPS
@@ -636,6 +731,7 @@ function pobWebSwitchMainSkill(jsonArg)
     end
   end
 
+  local ws2 = build.itemsTab and build.itemsTab.activeItemSet and build.itemsTab.activeItemSet.useSecondWeaponSet or false
   return dkjson.encode({
     stats = stats,
     fullDps = output.FullDPS or output.CombinedDPS or 0,
@@ -643,6 +739,7 @@ function pobWebSwitchMainSkill(jsonArg)
     display = displayData and displayData.sections or {},
     parts = partsInfo,
     selectedPart = selectedPart,
+    weaponSet = ws2 and 2 or 1,
   })
 end
 
@@ -685,11 +782,21 @@ function pobWebSwitchSkillPart(jsonArg)
     return dkjson.encode({ error = "no calc output after part switch" })
   end
 
+  -- Determine if this is a minion skill
+  local isMinion = false
+  local minionOut = output.Minion
+  local playerDps = (output.CombinedDPS or 0) + (output.TotalDPS or 0)
+  local minionTotalDps = minionOut and minionOut.TotalDPS or 0
+  if playerDps == 0 and minionTotalDps > 0 then
+    isMinion = true
+  end
+  local statSrc = isMinion and minionOut or output
+
   -- Per-damage-type breakdown
   local damageTypes = {}
-  local dmgSrc = output
-  if output.MainHand and output.MainHand.AverageHit and output.MainHand.AverageHit > 0 then
-    dmgSrc = output.MainHand
+  local dmgSrc = statSrc
+  if statSrc.MainHand and statSrc.MainHand.AverageHit and statSrc.MainHand.AverageHit > 0 then
+    dmgSrc = statSrc.MainHand
   end
   local typeAvgs = {}
   local totalAvg = 0
@@ -712,23 +819,27 @@ function pobWebSwitchSkillPart(jsonArg)
     end
   end
 
+  local activeMinionLimit = output.ActiveMinionLimit or 0
   local stats = {
-    TotalDPS = output.TotalDPS or 0,
-    CombinedDPS = output.CombinedDPS or 0,
-    TotalDot = output.TotalDot or 0,
-    BleedDPS = output.BleedDPS or 0,
-    IgniteDPS = output.IgniteDPS or 0,
-    PoisonDPS = output.PoisonDPS or 0,
-    Speed = output.Speed or 0,
-    CastSpeed = output.CastSpeed or 0,
-    CritChance = output.CritChance or 0,
-    CritMultiplier = output.CritMultiplier or 0,
-    AverageDamage = output.AverageDamage or 0,
-    AverageHit = dmgSrc.AverageHit or output.AverageHit or 0,
+    TotalDPS = isMinion and minionTotalDps or (output.TotalDPS or 0),
+    CombinedDPS = isMinion and minionTotalDps or (output.CombinedDPS or 0),
+    TotalDot = statSrc.TotalDot or 0,
+    BleedDPS = statSrc.BleedDPS or 0,
+    IgniteDPS = statSrc.IgniteDPS or 0,
+    PoisonDPS = statSrc.PoisonDPS or 0,
+    Speed = statSrc.Speed or 0,
+    CastSpeed = statSrc.CastSpeed or 0,
+    CritChance = statSrc.CritChance or 0,
+    CritMultiplier = statSrc.CritMultiplier or 0,
+    AverageDamage = statSrc.AverageDamage or 0,
+    AverageHit = dmgSrc.AverageHit or statSrc.AverageHit or 0,
     TotalMin = totalMin,
     TotalMax = totalMax,
     ManaCost = output.ManaCost or 0,
     damageTypes = damageTypes,
+    isMinion = isMinion,
+    minionDps = minionTotalDps,
+    activeMinionLimit = activeMinionLimit,
   }
 
   local skillDps = {}
@@ -2774,7 +2885,7 @@ self.onmessage = async (e: MessageEvent<CalcRequest & { _id?: string }>) => {
         break;
       }
       try {
-        const result = bridge_call_json("pobWebGetSkillsData", "{}");
+        const result = bridge_call_json("pobWebGetSkillsData", JSON.stringify({ skipAutoSelect: !!msg.skipAutoSelect }));
         const data = JSON.parse(result);
         if (data.error) {
           respond(_id, { type: "skills", data: emptySkills, error: data.error });
